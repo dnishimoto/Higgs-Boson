@@ -13,70 +13,51 @@ struct ContentView: View {
 
     var body: some View {
 
-        VStack(spacing: 0) {
+        ZStack(alignment: .top) {
 
-            QRTLSceneView(simulation: simulation)
+            Color.black
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+
+                SceneView(
+                    scene: simulation.scene,
+                    pointOfView: simulation.cameraNode,
+                    options: [
+                        .allowsCameraControl,
+                        .autoenablesDefaultLighting
+                    ]
+                )
                 .frame(maxWidth: .infinity)
-                .frame(height: 430)
+                .frame(height: 470)
 
-            ScrollView {
+                ScrollView {
 
-                VStack(spacing: 8) {
+                    VStack(spacing: 10) {
 
-                    collisionCard
-                    qrtlCard
-                    latticeCard
-                    energyCard
-                    higgsCard
+                        collisionCard
+                        qrtlShellCard
+                        latticeCard
+                        energyCard
+                        higgsCard
 
-                    Text(
-                        "QRTL model: proposed/unvalidated. " +
-                        "The Higgs-like mode is a simulation candidate, " +
-                        "not a claim of Standard Model Higgs production."
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 6)
+                        Button("Reset Simulation") {
+                            simulation.reset()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .padding(.vertical, 8)
+                    }
+                    .padding()
                 }
-                .padding(8)
+                .background(Color.black)
             }
-            .frame(maxHeight: 410)
-
-            HStack(spacing: 12) {
-
-                Button {
-                    simulation.isPaused.toggle()
-                } label: {
-
-                    Label(
-                        simulation.isPaused
-                        ? "Resume"
-                        : "Pause",
-                        systemImage:
-                            simulation.isPaused
-                            ? "play.fill"
-                            : "pause.fill"
-                    )
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button {
-                    simulation.reset()
-                } label: {
-
-                    Label(
-                        "Reset",
-                        systemImage:
-                            "arrow.counterclockwise"
-                    )
-                }
-                .buttonStyle(.bordered)
-            }
-            .padding(.vertical, 8)
         }
-        .background(Color.black.opacity(0.04))
+        .onAppear {
+            simulation.start()
+        }
+        .onDisappear {
+            simulation.stop()
+        }
     }
 
     // ========================================================
@@ -85,122 +66,89 @@ struct ContentView: View {
 
     private var collisionCard: some View {
 
-        monitorCard("COLLISION") {
+        monitorCard(
+            title: "COLLISION",
+            symbol: "bolt.fill"
+        ) {
 
             HStack {
 
-                metric(
-                    "Stage",
-                    simulation.stage
+                valueRow(
+                    label: "Proton A",
+                    value: simulation.protonAState
                 )
 
                 Spacer()
 
-                metric(
-                    "Time",
-                    String(
-                        format: "%.3f",
-                        simulation.time
-                    )
-                )
-            }
-
-            Divider()
-
-            HStack(spacing: 14) {
-
-                protonIndicator(
-                    title: "P1",
-                    color: .cyan,
-                    state:
-                        simulation.proton1.collided
-                        ? "COLLIDED"
-                        : "APPROACHING"
-                )
-
-                protonIndicator(
-                    title: "P2",
-                    color: .red,
-                    state:
-                        simulation.proton2.collided
-                        ? "COLLIDED"
-                        : "APPROACHING"
-                )
-
-                Spacer()
-
-                metric(
-                    "Distance",
-                    String(
+                valueRow(
+                    label: "Distance",
+                    value: String(
                         format: "%.3f",
                         simulation.protonDistance
                     )
                 )
-            }
-        }
-    }
-
-    // ========================================================
-    // MARK: - QRTL CARD
-    // ========================================================
-
-    private var qrtlCard: some View {
-
-        monitorCard("QRTL SHELL") {
-
-            HStack {
-
-                metric(
-                    "Shell",
-                    String(
-                        format: "%.3f",
-                        simulation.energyState.shellEnergy
-                    )
-                )
 
                 Spacer()
 
-                metric(
-                    "Equilibrium",
-                    String(
-                        format: "%.3f",
-                        simulation.energyState
-                            .equilibriumShellEnergy
-                    )
+                valueRow(
+                    label: "Proton B",
+                    value: simulation.protonBState
                 )
             }
 
             Divider()
+                .background(Color.gray)
 
-            HStack {
-
-                compactProgress(
-                    "Instability",
-                    min(
-                        simulation.shellInstability,
-                        1
-                    )
-                )
-
-                compactProgress(
-                    "Return",
-                    min(
-                        simulation.returnToStability,
-                        1
-                    )
-                )
-            }
-
-            Text(
-                simulation.isStableShell
-                ? "STABLE ENERGY SHELL"
-                : "ENERGY SHELL RETURNING"
+            statusRow(
+                label: "Collision",
+                status: simulation.collisionOccurred
+                    ? "OCCURRED"
+                    : "APPROACHING",
+                active: simulation.collisionOccurred
             )
-            .font(.caption.bold())
-            .foregroundStyle(
-                simulation.isStableShell
-                ? .green
-                : .orange
+        }
+    }
+
+    // ========================================================
+    // MARK: - QRTL SHELL CARD
+    // ========================================================
+
+    private var qrtlShellCard: some View {
+
+        monitorCard(
+            title: "QRTL SHELL",
+            symbol: "circle.hexagongrid.fill"
+        ) {
+
+            metricRow(
+                label: "Shell Energy",
+                value: "\(format(simulation.energyState.shellEnergy))"
+            )
+
+            metricRow(
+                label: "Equilibrium Energy",
+                value: "\(format(simulation.energyState.equilibriumShellEnergy))"
+            )
+
+            metricRow(
+                label: "Instability",
+                value: "\(formatPercent(simulation.energyState.shellInstability))"
+            )
+
+            metricRow(
+                label: "Deformation",
+                value: "\(format(simulation.energyState.deformation))"
+            )
+
+            Divider()
+                .background(Color.gray)
+
+            statusRow(
+                label: "Shell State",
+                status: simulation.energyState.isUnstable
+                    ? "UNSTABLE"
+                    : "STABLE",
+                active: simulation.energyState.isUnstable
             )
         }
     }
@@ -211,71 +159,46 @@ struct ContentView: View {
 
     private var latticeCard: some View {
 
-        monitorCard("LATTICE") {
+        monitorCard(
+            title: "QUARK-LATTICE CA",
+            symbol: "square.grid.3x3.fill"
+        ) {
 
-            HStack {
+            metricRow(
+                label: "Active Cells",
+                value: "\(simulation.activeCellCount)"
+            )
 
-                metric(
-                    "Localized",
-                    String(
-                        format: "%.4f",
-                        simulation.localizedEnergy
-                    )
-                )
+            metricRow(
+                label: "Collective Coherence",
+                value: formatPercent(simulation.collectiveCoherence)
+            )
 
-                Spacer()
+            metricRow(
+                label: "Average Strain",
+                value: format(simulation.averageStrain)
+            )
 
-                metric(
-                    "Field",
-                    String(
-                        format: "%.4f",
-                        simulation.qrtlField
-                    )
-                )
+            metricRow(
+                label: "Average Twist",
+                value: format(simulation.averageTwist)
+            )
 
-                Spacer()
-
-                metric(
-                    "Current",
-                    String(
-                        format: "%.4f",
-                        simulation.qrtlCurrent
-                    )
-                )
-            }
+            metricRow(
+                label: "Collective Amplitude",
+                value: format(simulation.collectiveAmplitude)
+            )
 
             Divider()
+                .background(Color.gray)
 
-            HStack {
-
-                compactProgress(
-                    "Coherence",
-                    simulation.phaseCoherence
-                )
-
-                compactProgress(
-                    "Strain",
-                    min(
-                        simulation.averageStrain,
-                        1
-                    )
-                )
-
-                compactProgress(
-                    "Twist",
-                    min(
-                        simulation.averageTwist,
-                        1
-                    )
-                )
-            }
-
-            Text(
-                "Collective state: " +
-                simulation.collectiveState
+            statusRow(
+                label: "Lattice State",
+                status: simulation.latticeExcited
+                    ? "EXCITED"
+                    : "EQUILIBRIUM",
+                active: simulation.latticeExcited
             )
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
     }
 
@@ -285,192 +208,100 @@ struct ContentView: View {
 
     private var energyCard: some View {
 
-        monitorCard("ENERGY") {
+        monitorCard(
+            title: "ENERGY",
+            symbol: "waveform.path.ecg"
+        ) {
 
-            HStack {
-
-                metric(
-                    "Initial",
-                    String(
-                        format: "%.3f",
-                        simulation.energyState.initialTotalEnergy
-                    )
-                )
-
-                Spacer()
-
-                metric(
-                    "Current",
-                    String(
-                        format: "%.3f",
-                        simulation.energyState.totalEnergy
-                    )
-                )
-
-                Spacer()
-
-                metric(
-                    "Error",
-                    String(
-                        format: "%.5f%%",
-                        simulation.energyState
-                            .conservationError * 100
-                    )
-                )
-            }
-
-            Divider()
-
-            HStack {
-
-                metric(
-                    "Kinetic",
-                    String(
-                        format: "%.3f",
-                        simulation.energyState.kineticEnergy
-                    )
-                )
-
-                Spacer()
-
-                metric(
-                    "Shell",
-                    String(
-                        format: "%.3f",
-                        simulation.energyState.shellExcessEnergy
-                    )
-                )
-
-                Spacer()
-
-                metric(
-                    "Lattice",
-                    String(
-                        format: "%.3f",
-                        simulation.energyState.latticeEnergy
-                    )
-                )
-
-                Spacer()
-
-                metric(
-                    "Mode",
-                    String(
-                        format: "%.3f",
-                        simulation.energyState.modeEnergy
-                    )
-                )
-            }
-
-            Text(
-                "Conserved fraction: " +
-                String(
-                    format: "%.3f%%",
-                    simulation.energyState
-                        .conservedEnergyFraction * 100
-                )
+            metricRow(
+                label: "Formation Threshold",
+                value: "\(format(simulation.formationThresholdEnergy))"
             )
-            .font(.caption)
-            .foregroundStyle(.secondary)
+
+            metricRow(
+                label: "Lattice Energy",
+                value: "\(format(simulation.latticeEnergy))"
+            )
+
+            metricRow(
+                label: "Resonant Mode Energy",
+                value: "\(format(simulation.resonantModeEnergy))"
+            )
+
+            metricRow(
+                label: "Energy Concentration",
+                value: formatPercent(simulation.energyConcentration)
+            )
         }
     }
 
     // ========================================================
-    // MARK: - HIGGS CARD
+    // MARK: - HIGGS-LIKE MODE CARD
     // ========================================================
 
     private var higgsCard: some View {
 
-        monitorCard("HIGGS-LIKE MODE") {
+        monitorCard(
+            title: "HIGGS-LIKE MODE",
+            symbol: "wave.3.right"
+        ) {
 
-            HStack {
+            metricRow(
+                label: "Resonant Mass",
+                value: "\(format(simulation.resonantMassGeV)) GeV"
+            )
 
-                VStack(
-                    alignment: .leading,
-                    spacing: 3
-                ) {
+            metricRow(
+                label: "Formation Threshold",
+                value: "\(format(simulation.formationThresholdEnergy))"
+            )
 
-                    Text(
-                        simulation.higgsMode.active
-                        ? "FORMING"
-                        : "NOT ACTIVE"
-                    )
-                    .font(.headline)
-                    .foregroundStyle(
-                        simulation.higgsMode.active
-                        ? .purple
-                        : .secondary
-                    )
+            metricRow(
+                label: "Mode Energy",
+                value: "\(format(simulation.resonantModeEnergy))"
+            )
 
-                    Text(
-                        simulation.higgsMode.active
-                        ? "Collective mode detected"
-                        : simulation.formationStatus
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
+            metricRow(
+                label: "Frequency",
+                value: "\(formatScientific(simulation.resonantFrequencyHz)) Hz"
+            )
 
-                Spacer()
+            metricRow(
+                label: "Amplitude",
+                value: format(simulation.higgsMode.amplitude)
+            )
 
-                metric(
-                    "Mode Energy",
-                    String(
-                        format: "%.5f",
-                        simulation.higgsMode.energy
-                    )
-                )
-            }
+            metricRow(
+                label: "Coherence",
+                value: formatPercent(simulation.higgsMode.coherence)
+            )
 
             Divider()
+                .background(Color.gray)
 
-            HStack {
-                metric(
-                    "Amplitude",
-                    String(format: "%.3f", simulation.higgsMode.amplitude)
-                )
-
-                Spacer()
-
-                metric(
-                    "Coherence",
-                    String(format: "%.3f", simulation.higgsMode.coherence)
-                )
-
-                Spacer()
-
-                metric(
-                    "Resonant Mass",
-                    String(format: "%.3f GeV", simulation.higgsMode.massGeV)
-                )
-
-                Spacer()
-
-                metric(
-                    "Target",
-                    "125.000 GeV"
-                )
-            }
-
-            let massDifference = abs(
-                simulation.higgsMode.massGeV - 125.0
+            metricRow(
+                label: "Target",
+                value: "125.000 GeV"
             )
 
-            Text(
-                "Distance from 125 GeV: " +
-                String(format: "%.3f GeV", massDifference)
+            metricRow(
+                label: "Target Frequency",
+                value: "\(formatScientific(simulation.targetFrequencyHz)) Hz"
             )
-            .font(.caption)
-            .foregroundStyle(
-                massDifference < 1.0 ? .green : .secondary
+
+            metricRow(
+                label: "Distance",
+                value: "\(format(simulation.massDistanceFromTarget)) GeV"
             )
-            Text(
-                "125 GeV is a comparison target; " +
-                "the simulation mode energy determines " +
-                "the displayed comparison."
+
+            Divider()
+                .background(Color.gray)
+
+            statusRow(
+                label: "Mode",
+                status: simulation.higgsModeStatus,
+                active: simulation.higgsMode.active
             )
-            .font(.caption2)
-            .foregroundStyle(.secondary)
         }
     }
 
@@ -479,240 +310,199 @@ struct ContentView: View {
     // ========================================================
 
     private func monitorCard<Content: View>(
-        _ title: String,
+        title: String,
+        symbol: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
 
         VStack(
             alignment: .leading,
-            spacing: 7
-        ) {
-
-            Text(title)
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
-
-            content()
-        }
-        .padding(10)
-        .frame(
-            maxWidth: .infinity,
-            alignment: .leading
-        )
-        .background(
-            RoundedRectangle(
-                cornerRadius: 10
-            )
-            .fill(
-                Color(.secondarySystemBackground)
-            )
-        )
-        .overlay(
-            RoundedRectangle(
-                cornerRadius: 10
-            )
-            .stroke(
-                Color.primary.opacity(0.08),
-                lineWidth: 1
-            )
-        )
-    }
-
-    private func metric(
-        _ title: String,
-        _ value: String
-    ) -> some View {
-
-        VStack(
-            alignment: .leading,
-            spacing: 2
-        ) {
-
-            Text(title)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            Text(value)
-                .font(
-                    .system(
-                        size: 12,
-                        weight: .semibold,
-                        design: .monospaced
-                    )
-                )
-                .lineLimit(1)
-        }
-    }
-
-    private func protonIndicator(
-        title: String,
-        color: Color,
-        state: String
-    ) -> some View {
-
-        HStack(spacing: 5) {
-
-            Circle()
-                .fill(color)
-                .frame(
-                    width: 10,
-                    height: 10
-                )
-
-            VStack(
-                alignment: .leading,
-                spacing: 1
-            ) {
-
-                Text(title)
-                    .font(.caption.bold())
-
-                Text(state)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func compactProgress(
-        _ title: String,
-        _ value: Double
-    ) -> some View {
-
-        VStack(
-            alignment: .leading,
-            spacing: 2
+            spacing: 10
         ) {
 
             HStack {
 
+                Image(systemName: symbol)
+
                 Text(title)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(.headline)
 
                 Spacer()
-
-                Text(
-                    String(
-                        format: "%.2f",
-                        value
-                    )
-                )
-                .font(
-                    .caption2.monospaced()
-                )
             }
+            .foregroundColor(.white)
 
-            ProgressView(
-                value:
-                    min(
-                        max(value, 0),
-                        1
-                    )
-            )
+            content()
         }
-        .frame(maxWidth: .infinity)
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(
+                    Color.white.opacity(0.15),
+                    lineWidth: 1
+                )
+        )
+    }
+
+    private func metricRow(
+        label: String,
+        value: String
+    ) -> some View {
+
+        HStack {
+
+            Text(label)
+                .foregroundColor(.gray)
+
+            Spacer()
+
+            Text(value)
+                .foregroundColor(.white)
+                .monospacedDigit()
+        }
+        .font(.system(size: 14))
+    }
+
+    private func valueRow(
+        label: String,
+        value: String
+    ) -> some View {
+
+        VStack(spacing: 3) {
+
+            Text(label)
+                .font(.caption)
+                .foregroundColor(.gray)
+
+            Text(value)
+                .font(.system(size: 13))
+                .foregroundColor(.white)
+        }
+    }
+
+    private func statusRow(
+        label: String,
+        status: String,
+        active: Bool
+    ) -> some View {
+
+        HStack {
+
+            Text(label)
+                .foregroundColor(.gray)
+
+            Spacer()
+
+            Text(status)
+                .fontWeight(.semibold)
+                .foregroundColor(
+                    active ? .green : .orange
+                )
+        }
+    }
+
+    private func format(
+        _ value: Double
+    ) -> String {
+
+        String(
+            format: "%.6f",
+            value
+        )
+    }
+
+    private func formatPercent(
+        _ value: Double
+    ) -> String {
+
+        String(
+            format: "%.1f%%",
+            value * 100.0
+        )
+    }
+
+    private func formatScientific(
+        _ value: Double
+    ) -> String {
+
+        guard value.isFinite,
+              value > 0
+        else {
+            return "0"
+        }
+
+        return String(
+            format: "%.3e",
+            value
+        )
     }
 }
 
 // ============================================================
-// MARK: - ENERGY STATE
+// MARK: - QRTL CONSTANTS
 // ============================================================
 
-struct QRTLEnergyState {
+enum QRTLConstants {
 
-    let equilibriumShellEnergy: Double = 2.0
+    static let targetHiggsMassGeV = 125.0
 
-    var shellEnergy: Double = 2.0
+    static let planckConstant =
+        6.62607015e-34
 
-    var kineticEnergy: Double = 8.0
+    static let joulePerGeV =
+        1.602176634e-10
 
-    var latticeEnergy: Double = 0.0
+    // --------------------------------------------------------
+    // Lattice
+    // --------------------------------------------------------
 
-    var fieldEnergy: Double = 0.0
+    static let latticeSize = 17
 
-    var modeEnergy: Double = 0.0
+    static let coupling = 0.16
+    static let twistCoupling = 0.08
+    static let phaseCoupling = 0.12
+    static let strainCoupling = 0.06
 
-    var initialTotalEnergy: Double = 10.0
+    static let restoringForce = 0.20
+    static let damping = 0.008
 
-    var shellEnergyDeviation: Double {
+    static let twistRestoring = 0.08
+    static let phaseRestoring = 0.03
 
-        shellEnergy -
-        equilibriumShellEnergy
-    }
+    // --------------------------------------------------------
+    // Collision
+    // --------------------------------------------------------
 
-    var shellInstability: Double {
+    static let initialProtonX = 6.0
 
-        abs(
-            shellEnergyDeviation
-        ) /
-        max(
-            abs(
-                equilibriumShellEnergy
-            ),
-            1e-12
-        )
-    }
+    static let protonSpeed = 4.0
 
-    var returnToStability: Double {
+    static let collisionDistance = 0.55
 
-        1.0 -
-        exp(
-            -min(
-                max(
-                    shellInstability,
-                    0
-                ),
-                20
-            )
-        )
-    }
+    // --------------------------------------------------------
+    // Simulation
+    // --------------------------------------------------------
 
-    var isStableShell: Bool {
+    static let timeStep = 0.002
 
-        shellInstability < 0.05
-    }
+    static let physicsStepsPerFrame = 4
 
-    var shellExcessEnergy: Double {
+    // --------------------------------------------------------
+    // Pump / collision energy
+    // --------------------------------------------------------
 
-        max(
-            0,
-            shellEnergy -
-            equilibriumShellEnergy
-        )
-    }
+    static let collisionEnergy = 1.0
 
-    var totalEnergy: Double {
+    static let excitationRadius = 3.0
 
-        kineticEnergy +
-        shellExcessEnergy +
-        latticeEnergy +
-        fieldEnergy +
-        modeEnergy
-    }
+    // --------------------------------------------------------
+    // Visual
+    // --------------------------------------------------------
 
-    var conservationError: Double {
-
-        abs(
-            totalEnergy -
-            initialTotalEnergy
-        ) /
-        max(
-            abs(
-                initialTotalEnergy
-            ),
-            1e-12
-        )
-    }
-
-    var conservedEnergyFraction: Double {
-
-        max(
-            0,
-            1 -
-            conservationError
-        )
-    }
+    static let sceneScale: Float = 0.75
 }
 
 // ============================================================
@@ -721,46 +511,73 @@ struct QRTLEnergyState {
 
 struct QRTLCell {
 
-    var position: SIMD3<Float>
+    let index: Int
 
-    var displacement: SIMD3<Float>
+    let gridX: Int
+    let gridY: Int
+    let gridZ: Int
 
-    var velocity: SIMD3<Float>
+    let position: SIMD3<Float>
 
-    var twist: Double
+    // --------------------------------------------------------
+    // QRTL lattice state
+    // --------------------------------------------------------
 
-    var phase: Double
+    var displacement = SIMD3<Float>(0, 0, 0)
 
-    var amplitude: Double
+    var velocity = SIMD3<Float>(0, 0, 0)
 
-    var localEnergy: Double
+    var twist: Double = 0
 
-    var localStrain: Double
+    var phase: Double = 0
 
-    var couplingState: Double
+    var amplitude: Double = 0
+
+    var localEnergy: Double = 0
+
+    var localStrain: Double = 0
+
+    var couplingState: Double = 0
+
+    // --------------------------------------------------------
+    // Genuine oscillator state
+    // --------------------------------------------------------
+
+    var modeCoordinate: Double = 0
+
+    var modeVelocity: Double = 0
+
+    var modeAcceleration: Double = 0
+
+    // Phase history is now generated from the oscillator.
+    var previousPhase: Double = 0
+
+    var unwrappedPhase: Double = 0
+
+    // --------------------------------------------------------
+    // Neighbor indices
+    // --------------------------------------------------------
+
+    var neighbors: [Int] = []
 }
 
 // ============================================================
-// MARK: - PROTON
+// MARK: - ENERGY STATE
 // ============================================================
 
-struct QRTLProton {
+struct QRTLEnergyState {
 
-    var position: SIMD3<Float>
+    var equilibriumShellEnergy: Double = 1.0
 
-    var velocity: SIMD3<Float>
+    var shellEnergy: Double = 1.0
 
-    var energy: Double
+    var kineticEnergy: Double = 0
 
-    var shellEnergy: Double
+    var deformation: Double = 0
 
-    var shellInstability: Double
+    var shellInstability: Double = 0
 
-    var excitation: Double
-
-    var collided: Bool
-
-    var colorIndex: Int
+    var isUnstable: Bool = false
 }
 
 // ============================================================
@@ -774,6 +591,8 @@ struct HiggsLikeMode {
     var age: Double = 0
 
     var energy: Double = 0
+
+    var frequencyHz: Double = 0
 
     var massGeV: Double = 0
 
@@ -791,16 +610,14 @@ struct HiggsLikeMode {
 }
 
 // ============================================================
-// MARK: - SIMULATION
+// MARK: - QRTL SIMULATION
 // ============================================================
 
 final class QRTLSimulation: ObservableObject {
 
-    @Published var cells: [QRTLCell] = []
-
-    @Published var proton1: QRTLProton
-
-    @Published var proton2: QRTLProton
+    // ========================================================
+    // MARK: Published State
+    // ========================================================
 
     @Published var energyState =
         QRTLEnergyState()
@@ -808,1504 +625,2258 @@ final class QRTLSimulation: ObservableObject {
     @Published var higgsMode =
         HiggsLikeMode()
 
-    @Published var time: Double = 0
+    @Published var collisionOccurred = false
 
-    @Published var stage =
-        "Protons Approaching"
+    @Published var latticeExcited = false
 
-    @Published var isPaused = false
+    @Published var collectiveCoherence = 0.0
 
-    @Published var qrtlField: Double = 0
+    @Published var collectiveAmplitude = 0.0
 
-    @Published var qrtlCurrent: Double = 0
+    @Published var averageStrain = 0.0
 
-    @Published var borlagrinoFlow: Double = 0
+    @Published var averageTwist = 0.0
 
-    @Published var localizedEnergy: Double = 0
+    @Published var latticeEnergy = 0.0
 
-    @Published var phaseCoherence: Double = 0
+    @Published var resonantModeEnergy = 0.0
 
-    @Published var averageStrain: Double = 0
+    @Published var resonantFrequencyHz = 0.0
 
-    @Published var averageTwist: Double = 0
+    @Published var resonantMassGeV = 0.0
 
-    // --------------------------------------------------------
-    // COMPUTED STATE
-    // --------------------------------------------------------
+    @Published var formationThresholdEnergy = 0.0
 
-    var shellInstability: Double {
+    @Published var massDistanceFromTarget =
+        QRTLConstants.targetHiggsMassGeV
 
-        energyState.shellInstability
-    }
+    @Published var protonAState = "MOVING"
+    @Published var protonBState = "MOVING"
 
-    var returnToStability: Double {
+    @Published var protonDistance =
+        QRTLConstants.initialProtonX * 2.0
 
-        energyState.returnToStability
-    }
+    // ========================================================
+    // MARK: Scene
+    // ========================================================
 
-    var isStableShell: Bool {
+    let scene = SCNScene()
 
-        energyState.isStableShell
-    }
+    let cameraNode = SCNNode()
 
-    var totalEnergy: Double {
+    private let protonANode = SCNNode()
+    private let protonBNode = SCNNode()
 
-        energyState.totalEnergy
-    }
+    private let protonAShellNode = SCNNode()
+    private let protonBShellNode = SCNNode()
 
-    var conservationError: Double {
+    private let latticeParentNode = SCNNode()
 
-        energyState.conservationError
-    }
+    private let higgsNode = SCNNode()
 
-    var conservedEnergyFraction: Double {
+    // ========================================================
+    // MARK: Simulation State
+    // ========================================================
 
-        energyState.conservedEnergyFraction
-    }
+    private var cells: [QRTLCell] = []
 
-    var protonDistance: Double {
+    private var cellNodes: [SCNNode] = []
 
-        Double(
-            simd_distance(
-                proton1.position,
-                proton2.position
-            )
-        )
-    }
-
-    var collectiveState: String {
-
-        if phaseCoherence > 0.90 {
-            return "Highly coherent"
-        }
-
-        if phaseCoherence > 0.60 {
-            return "Collective"
-        }
-
-        if phaseCoherence > 0.30 {
-            return "Developing"
-        }
-
-        return "Localized"
-    }
-
-    var formationStatus: String {
-
-        if !proton1.collided {
-            return "Awaiting collision"
-        }
-
-        if phaseCoherence < 0.30 {
-            return "Low coherence"
-        }
-
-        if localizedEnergy < 0.05 {
-            return "Insufficient localized energy"
-        }
-
-        if higgsMode.active {
-            return "Collective mode active"
-        }
-
-        return "Mode conditions developing"
-    }
-
-    // --------------------------------------------------------
-    // SIMULATION PARAMETERS
-    // --------------------------------------------------------
-
-    private let gridSize = 17
-
-    // Physics remains at 0.002 seconds.
-    private let timeStep = 0.002
-
-    // Four physics integrations per display update.
-    private let physicsStepsPerFrame = 4
-
-    // Faster proton approach.
-    private let protonApproachSpeed: Float = 4.0
-
-    private let collisionDistance: Float = 0.55
-
-    private let restoringForce = 0.20
-
-    private let damping = 0.008
-
-    private let twistCoupling = 0.08
-
-    private let phaseCoupling = 0.12
-
-    private let strainCoupling = 0.06
-
-    private let qrtlCoupling = 0.10
-
-    private let modeThreshold = 0.002
-
-    private let comparisonMassGeV = 125.0
-
-    // --------------------------------------------------------
-    // SIX NEIGHBOR OFFSETS
-    // --------------------------------------------------------
-
-    private let latticeNeighborOffsets:
-        [(Int, Int, Int)] = [
-
-            (1, 0, 0),
-            (-1, 0, 0),
-
-            (0, 1, 0),
-            (0, -1, 0),
-
-            (0, 0, 1),
-            (0, 0, -1)
-        ]
-
-    // --------------------------------------------------------
-    // TIMER
-    // --------------------------------------------------------
+    private var running = false
 
     private var timer: Timer?
 
-    private var hasCollided = false
+    private var simulationTime = 0.0
 
-    // --------------------------------------------------------
-    // INIT
-    // --------------------------------------------------------
+    private var protonAX =
+        -QRTLConstants.initialProtonX
+
+    private var protonBX =
+        QRTLConstants.initialProtonX
+
+    private var collisionTime = 0.0
+
+    // ========================================================
+    // MARK: Collective Oscillation Measurement
+    // ========================================================
+
+    private var previousCollectiveSignal = 0.0
+
+    private var previousCollectiveVelocity = 0.0
+
+    private var lastPositiveCrossingTime: Double?
+
+    private var measuredPeriods: [Double] = []
+
+    private var phaseReferenceEstablished = false
+
+    // ========================================================
+    // MARK: Target Frequency
+    // ========================================================
+
+    var targetFrequencyHz: Double {
+
+        let targetEnergyJoules =
+            QRTLConstants.targetHiggsMassGeV *
+            QRTLConstants.joulePerGeV
+
+        return targetEnergyJoules /
+            QRTLConstants.planckConstant
+    }
+
+    // ========================================================
+    // MARK: Derived Values
+    // ========================================================
+
+    var activeCellCount: Int {
+
+        cells.reduce(into: 0) { result, cell in
+
+            if cell.localEnergy > 0.000001 {
+                result += 1
+            }
+        }
+    }
+
+    var energyConcentration: Double {
+
+        guard latticeEnergy > 0 else {
+            return 0
+        }
+
+        guard resonantModeEnergy > 0 else {
+            return 0
+        }
+
+        return min(
+            1.0,
+            resonantModeEnergy /
+            latticeEnergy
+        )
+    }
+
+    var higgsModeStatus: String {
+
+        if !collisionOccurred {
+            return "WAITING FOR COLLISION"
+        }
+
+        if energyState.isUnstable &&
+            !higgsMode.active {
+
+            return "SHELL INSTABILITY"
+        }
+
+        if higgsMode.active &&
+            resonantFrequencyHz > 0 {
+
+            return "RESONANT MODE FORMING"
+        }
+
+        if latticeExcited {
+
+            return "LATTICE OSCILLATING"
+        }
+
+        return "ENERGY TRANSFER"
+    }
+
+    // ========================================================
+    // MARK: Initialization
+    // ========================================================
 
     init() {
 
-        proton1 = QRTLProton(
-            position:
-                SIMD3<Float>(
-                    -6,
-                    0,
-                    0
-                ),
-            velocity:
-                SIMD3<Float>(
-                    protonApproachSpeed,
-                    0,
-                    0
-                ),
-            energy: 4.0,
-            shellEnergy: 1.0,
-            shellInstability: 0,
-            excitation: 0,
-            collided: false,
-            colorIndex: 0
-        )
+        configureScene()
 
-        proton2 = QRTLProton(
-            position:
-                SIMD3<Float>(
-                    6,
-                    0,
-                    0
-                ),
-            velocity:
-                SIMD3<Float>(
-                    -protonApproachSpeed,
-                    0,
-                    0
-                ),
-            energy: 4.0,
-            shellEnergy: 1.0,
-            shellInstability: 0,
-            excitation: 0,
-            collided: false,
-            colorIndex: 1
-        )
+        buildLattice()
 
-        createLattice()
+        createProtons()
 
-        recordInitialEnergy()
-
-        start()
-    }
-
-    deinit {
-
-        timer?.invalidate()
+        createHiggsNode()
     }
 
     // ========================================================
-    // MARK: - LATTICE INDEX
+    // MARK: Scene Configuration
     // ========================================================
 
-    private func latticeIndex(
-        x: Int,
-        y: Int,
-        z: Int
-    ) -> Int {
+    private func configureScene() {
 
-        z *
-        gridSize *
-        gridSize +
-        y *
-        gridSize +
-        x
-    }
+        scene.background.contents = UIColor.black
 
-    // ========================================================
-    // MARK: - LATTICE CREATION
-    // ========================================================
-
-    private func createLattice() {
-
-        cells.removeAll(
-            keepingCapacity: true
+        // Lattice at origin
+        latticeParentNode.position = SCNVector3(
+            0,
+            0,
+            0
         )
 
-        let half =
-            Float(
-                gridSize - 1
-            ) /
-            2.0
+        scene.rootNode.addChildNode(
+            latticeParentNode
+        )
 
-        for z in 0..<gridSize {
+        // Protons
+        scene.rootNode.addChildNode(
+            protonANode
+        )
 
-            for y in 0..<gridSize {
+        scene.rootNode.addChildNode(
+            protonBNode
+        )
 
-                for x in 0..<gridSize {
+        scene.rootNode.addChildNode(
+            protonAShellNode
+        )
+
+        scene.rootNode.addChildNode(
+            protonBShellNode
+        )
+
+        // Higgs-like mode
+        scene.rootNode.addChildNode(
+            higgsNode
+        )
+
+        // Camera
+        cameraNode.camera = SCNCamera()
+
+        cameraNode.camera?.fieldOfView = 50
+        cameraNode.camera?.zNear = 0.01
+        cameraNode.camera?.zFar = 1000
+
+        cameraNode.position = SCNVector3(
+            0,
+            0,
+            45
+        )
+        
+        let cameraTargetNode = SCNNode()
+
+        cameraTargetNode.position = SCNVector3(
+            0,
+            0,
+            0
+        )
+
+        scene.rootNode.addChildNode(
+            cameraTargetNode
+        )
+
+        let lookAt =
+            SCNLookAtConstraint(
+                target: cameraTargetNode
+            )
+
+        lookAt.isGimbalLockEnabled = true
+
+        cameraNode.constraints = [
+            lookAt
+        ]
+
+        scene.rootNode.addChildNode(
+            cameraNode
+        )
+
+        // Lighting
+        let lightNode = SCNNode()
+
+        let light = SCNLight()
+        light.type = .omni
+        light.intensity = 1500
+
+        lightNode.light = light
+        lightNode.position = SCNVector3(
+            0,
+            10,
+            20
+        )
+
+        scene.rootNode.addChildNode(
+            lightNode
+        )
+    }
+    // ========================================================
+    // MARK: Build Lattice
+    // ========================================================
+
+    private func buildLattice() {
+
+        cells.removeAll()
+
+        cellNodes.removeAll()
+
+        let n =
+            QRTLConstants.latticeSize
+
+        let center =
+            Float(n - 1) / 2.0
+
+        var index = 0
+
+        for z in 0..<n {
+
+            for y in 0..<n {
+
+                for x in 0..<n {
 
                     let position =
                         SIMD3<Float>(
-                            Float(x) - half,
-                            Float(y) - half,
-                            Float(z) - half
+                            Float(x) - center,
+                            Float(y) - center,
+                            Float(z) - center
                         )
 
-                    cells.append(
+                    let cell =
                         QRTLCell(
-                            position: position,
-                            displacement: .zero,
-                            velocity: .zero,
-                            twist: 0,
-                            phase: 0,
-                            amplitude: 0,
-                            localEnergy: 0,
-                            localStrain: 0,
-                            couplingState: 0
+                            index: index,
+                            gridX: x,
+                            gridY: y,
+                            gridZ: z,
+                            position: position
                         )
+
+                    cells.append(cell)
+
+                    let node =
+                        makeLatticeNode()
+
+                    node.position =
+                        SCNVector3(
+                            position.x *
+                                QRTLConstants.sceneScale,
+                            position.y *
+                                QRTLConstants.sceneScale,
+                            position.z *
+                                QRTLConstants.sceneScale
+                        )
+
+                    latticeParentNode.addChildNode(
+                        node
                     )
+
+                    cellNodes.append(node)
+
+                    index += 1
                 }
             }
         }
+
+        buildNeighborLookup()
     }
 
     // ========================================================
-    // MARK: - INITIAL ENERGY
+    // MARK: Neighbor Lookup
     // ========================================================
 
-    private func recordInitialEnergy() {
+    private func buildNeighborLookup() {
 
-        energyState.kineticEnergy =
-            proton1.energy +
-            proton2.energy
-
-        energyState.shellEnergy =
-            energyState.equilibriumShellEnergy
-
-        energyState.latticeEnergy = 0
-
-        energyState.fieldEnergy = 0
-
-        energyState.modeEnergy = 0
-
-        energyState.initialTotalEnergy =
-            energyState.totalEnergy
-    }
-
-    // ========================================================
-    // MARK: - DISPLAY TIMER
-    // ========================================================
-
-    private func start() {
-
-        timer?.invalidate()
-
-        // ----------------------------------------------------
-        // 60 Hz display timer.
-        //
-        // The physics still advances using the smaller
-        // 0.002 second timestep.
-        // ----------------------------------------------------
-
-        timer =
-            Timer.scheduledTimer(
-                withTimeInterval:
-                    1.0 / 60.0,
-                repeats: true
-            ) { [weak self] _ in
-
-                guard let self else {
-                    return
-                }
-
-                guard !self.isPaused else {
-                    return
-                }
-
-                self.advancePhysics()
-            }
-    }
-
-    // ========================================================
-    // MARK: - PHYSICS ADVANCE
-    // ========================================================
-
-    private func advancePhysics() {
-
-        for _ in 0..<physicsStepsPerFrame {
-
-            stepPhysics()
-        }
-    }
-
-    // ========================================================
-    // MARK: - PHYSICS STEP
-    // ========================================================
-
-    private func stepPhysics() {
-
-        time += timeStep
-
-        if !hasCollided {
-
-            stage =
-                "Protons Approaching"
-
-            updateProtonMotion()
-
-            detectCollision()
-
-            return
-        }
-
-        updateCollisionDynamics()
-
-        updateLattice()
-
-        updateQRTLField()
-
-        updateQRTLCurrent()
-
-        updateBorlagrinoFlow()
-
-        updateCollectiveState()
-
-        updateHiggsLikeMode()
-
-        updateEnergyConservation()
-    }
-
-    // ========================================================
-    // MARK: - PROTON MOTION
-    // ========================================================
-
-    private func updateProtonMotion() {
-
-        proton1.position +=
-            proton1.velocity *
-            Float(timeStep)
-
-        proton2.position +=
-            proton2.velocity *
-            Float(timeStep)
-    }
-
-    // ========================================================
-    // MARK: - COLLISION
-    // ========================================================
-
-    private func detectCollision() {
-
-        if protonDistance <=
-            Double(collisionDistance) {
-
-            performCollision()
-        }
-    }
-
-    private func performCollision() {
-
-        hasCollided = true
-
-        proton1.collided = true
-        proton2.collided = true
-
-        let collisionPosition =
-            (
-                proton1.position +
-                proton2.position
-            ) *
-            0.5
-
-        proton1.position =
-            collisionPosition
-
-        proton2.position =
-            collisionPosition
-
-        proton1.velocity =
-            .zero
-
-        proton2.velocity =
-            .zero
-
-        let incomingEnergy =
-            proton1.energy +
-            proton2.energy
-
-        energyState.kineticEnergy = 0
-
-        // Collision kinetic energy becomes shell excess.
-        energyState.shellEnergy =
-            energyState.equilibriumShellEnergy +
-            incomingEnergy
-
-        proton1.shellEnergy =
-            energyState.shellEnergy * 0.5
-
-        proton2.shellEnergy =
-            energyState.shellEnergy * 0.5
-
-        updateProtonShellState()
-
-        stage =
-            "ENERGY SHELL UNSTABLE"
-    }
-
-    // ========================================================
-    // MARK: - SHELL DYNAMICS
-    // ========================================================
-
-    private func updateCollisionDynamics() {
-
-        let excess =
-            energyState.shellExcessEnergy
-
-        guard excess > 0 else {
-
-            energyState.shellEnergy =
-                energyState.equilibriumShellEnergy
-
-            updateProtonShellState()
-
-            return
-        }
-
-        let normalizedInstability =
-            min(
-                excess /
-                max(
-                    energyState.equilibriumShellEnergy,
-                    1e-12
-                ),
-                20
-            )
-
-        let transferRate =
-            min(
-                1.0,
-                qrtlCoupling *
-                (1.0 + normalizedInstability) *
-                timeStep *
-                25.0
-            )
-
-        let transfer =
-            min(
-                excess,
-                excess *
-                transferRate
-            )
-
-        energyState.shellEnergy -=
-            transfer
-
-        depositEnergyIntoLattice(
-            transfer
-        )
-
-        updateProtonShellState()
-
-        if energyState.shellInstability > 0.05 {
-
-            stage =
-                "Shell Returning Toward Stability"
-
-        } else {
-
-            stage =
-                "QRTL Equilibrium Recovery"
-        }
-    }
-
-    private func updateProtonShellState() {
-
-        let instability =
-            energyState.shellInstability
-
-        proton1.shellEnergy =
-            energyState.shellEnergy * 0.5
-
-        proton2.shellEnergy =
-            energyState.shellEnergy * 0.5
-
-        proton1.shellInstability =
-            instability
-
-        proton2.shellInstability =
-            instability
-
-        proton1.excitation =
-            min(
-                1,
-                instability
-            )
-
-        proton2.excitation =
-            min(
-                1,
-                instability
-            )
-    }
-
-    // ========================================================
-    // MARK: - ENERGY DEPOSITION
-    // ========================================================
-
-    private func depositEnergyIntoLattice(
-        _ energy: Double
-    ) {
-
-        guard energy > 0 else {
-            return
-        }
-
-        let radius = 3.0
-
-        var weights =
-            [Double](
-                repeating: 0,
-                count: cells.count
-            )
-
-        var weightSum = 0.0
+        let n =
+            QRTLConstants.latticeSize
 
         for index in cells.indices {
 
-            let distance =
-                Double(
-                    simd_length(
-                        cells[index].position
-                    )
-                )
+            let x = cells[index].gridX
+            let y = cells[index].gridY
+            let z = cells[index].gridZ
 
-            if distance <= radius {
+            var neighbors: [Int] = []
 
-                let normalized =
-                    max(
-                        0,
-                        1 -
-                        distance / radius
-                    )
+            let offsets = [
+                (-1, 0, 0),
+                (1, 0, 0),
+                (0, -1, 0),
+                (0, 1, 0),
+                (0, 0, -1),
+                (0, 0, 1)
+            ]
 
-                let weight =
-                    normalized *
-                    normalized
+            for offset in offsets {
 
-                weights[index] =
-                    weight
+                let nx = x + offset.0
+                let ny = y + offset.1
+                let nz = z + offset.2
 
-                weightSum +=
-                    weight
-            }
-        }
-
-        guard weightSum > 0 else {
-            return
-        }
-
-        for index in cells.indices {
-
-            let share =
-                energy *
-                weights[index] /
-                weightSum
-
-            guard share > 0 else {
-                continue
-            }
-
-            cells[index].localEnergy +=
-                share
-
-            cells[index].amplitude +=
-                sqrt(
-                    max(
-                        share,
-                        0
-                    )
-                ) *
-                0.20
-
-            cells[index].couplingState =
-                min(
-                    1,
-                    cells[index].couplingState +
-                    share *
-                    0.05
-                )
-
-            cells[index].displacement +=
-                SIMD3<Float>(
-                    Float(
-                        sqrt(
-                            max(
-                                share,
-                                0
-                            )
-                        ) *
-                        0.05
-                    ),
-                    0,
-                    0
-                )
-
-            cells[index].localStrain =
-                Double(
-                    simd_length(
-                        cells[index].displacement
-                    )
-                )
-        }
-    }
-
-    // ========================================================
-    // MARK: - OPTIMIZED LATTICE
-    // ========================================================
-
-    private func updateLattice() {
-
-        guard !cells.isEmpty else {
-            return
-        }
-
-        var updated =
-            cells
-
-        // ----------------------------------------------------
-        // IMPORTANT:
-        //
-        // This uses only the six adjacent cells instead of
-        // comparing every cell against all 4,913 cells.
-        // ----------------------------------------------------
-
-        for index in cells.indices {
-
-            let local =
-                cells[index]
-
-            let z =
-                index /
-                (gridSize * gridSize)
-
-            let remainder =
-                index %
-                (gridSize * gridSize)
-
-            let y =
-                remainder /
-                gridSize
-
-            let x =
-                remainder %
-                gridSize
-
-            var neighborEnergy = 0.0
-
-            var neighborPhaseX = 0.0
-
-            var neighborPhaseY = 0.0
-
-            var neighborTwist = 0.0
-
-            var neighborCount = 0.0
-
-            for offset in
-                latticeNeighborOffsets {
-
-                let nx =
-                    x +
-                    offset.0
-
-                let ny =
-                    y +
-                    offset.1
-
-                let nz =
-                    z +
-                    offset.2
-
-                guard
-                    nx >= 0,
-                    nx < gridSize,
-                    ny >= 0,
-                    ny < gridSize,
-                    nz >= 0,
-                    nz < gridSize
+                guard nx >= 0,
+                      nx < n,
+                      ny >= 0,
+                      ny < n,
+                      nz >= 0,
+                      nz < n
                 else {
                     continue
                 }
 
                 let neighborIndex =
-                    latticeIndex(
-                        x: nx,
-                        y: ny,
-                        z: nz
-                    )
+                    nx +
+                    ny * n +
+                    nz * n * n
 
-                let neighbor =
-                    cells[neighborIndex]
-
-                neighborEnergy +=
-                    neighbor.localEnergy
-
-                neighborPhaseX +=
-                    cos(
-                        neighbor.phase
-                    )
-
-                neighborPhaseY +=
-                    sin(
-                        neighbor.phase
-                    )
-
-                neighborTwist +=
-                    neighbor.twist
-
-                neighborCount += 1
+                neighbors.append(
+                    neighborIndex
+                )
             }
 
-            guard neighborCount > 0 else {
+            cells[index].neighbors =
+                neighbors
+        }
+    }
+
+    // ========================================================
+    // MARK: Lattice Node
+    // ========================================================
+
+    private func makeLatticeNode() -> SCNNode {
+
+        let geometry =
+            SCNSphere(
+                radius: 0.055
+            )
+
+        geometry.segmentCount = 6
+
+        let material =
+            SCNMaterial()
+
+        material.diffuse.contents =
+            UIColor(
+                white: 0.18,
+                alpha: 0.45
+            )
+
+        geometry.materials = [
+            material
+        ]
+
+        return SCNNode(
+            geometry: geometry
+        )
+    }
+
+    // ========================================================
+    // MARK: Create Protons
+    // ========================================================
+
+    private func createProtons() {
+
+        let protonAGeometry =
+            SCNSphere(
+                radius: 0.42
+            )
+
+        protonAGeometry.segmentCount = 24
+
+        let protonAMaterial =
+            SCNMaterial()
+
+        protonAMaterial.diffuse.contents =
+            UIColor.cyan
+
+        protonAMaterial.emission.contents =
+            UIColor.cyan
+
+        protonAGeometry.materials = [
+            protonAMaterial
+        ]
+
+        protonANode.geometry =
+            protonAGeometry
+
+        protonANode.position =
+            SCNVector3(
+                Float(protonAX),
+                0,
+                0
+            )
+
+        scene.rootNode.addChildNode(
+            protonANode
+        )
+
+        let protonBGeometry =
+            SCNSphere(
+                radius: 0.42
+            )
+
+        protonBGeometry.segmentCount = 24
+
+        let protonBMaterial =
+            SCNMaterial()
+
+        protonBMaterial.diffuse.contents =
+            UIColor.red
+
+        protonBMaterial.emission.contents =
+            UIColor.red
+
+        protonBGeometry.materials = [
+            protonBMaterial
+        ]
+
+        protonBNode.geometry =
+            protonBGeometry
+
+        protonBNode.position =
+            SCNVector3(
+                Float(protonBX),
+                0,
+                0
+            )
+
+        scene.rootNode.addChildNode(
+            protonBNode
+        )
+
+        // ----------------------------------------------------
+        // Proton shells
+        // ----------------------------------------------------
+
+        let shellAGeometry =
+            SCNSphere(
+                radius: 0.58
+            )
+
+        shellAGeometry.segmentCount = 20
+
+        let shellAMaterial =
+            SCNMaterial()
+
+        shellAMaterial.diffuse.contents =
+            UIColor.cyan.withAlphaComponent(0.08)
+
+        shellAMaterial.transparency = 0.15
+
+        shellAGeometry.materials = [
+            shellAMaterial
+        ]
+
+        protonAShellNode.geometry =
+            shellAGeometry
+
+        scene.rootNode.addChildNode(
+            protonAShellNode
+        )
+
+        let shellBGeometry =
+            SCNSphere(
+                radius: 0.58
+            )
+
+        shellBGeometry.segmentCount = 20
+
+        let shellBMaterial =
+            SCNMaterial()
+
+        shellBMaterial.diffuse.contents =
+            UIColor.red.withAlphaComponent(0.08)
+
+        shellBMaterial.transparency = 0.15
+
+        shellBGeometry.materials = [
+            shellBMaterial
+        ]
+
+        protonBShellNode.geometry =
+            shellBGeometry
+
+        scene.rootNode.addChildNode(
+            protonBShellNode
+        )
+    }
+
+    // ========================================================
+    // MARK: Higgs Visual Node
+    // ========================================================
+
+    private func createHiggsNode() {
+
+        let geometry =
+            SCNSphere(
+                radius: 0.65
+            )
+
+        geometry.segmentCount = 24
+
+        let material =
+            SCNMaterial()
+
+        material.diffuse.contents =
+            UIColor.purple
+
+        material.emission.contents =
+            UIColor.purple.withAlphaComponent(0.8)
+
+        material.transparency = 0.0
+
+        geometry.materials = [
+            material
+        ]
+
+        higgsNode.geometry =
+            geometry
+
+        higgsNode.position =
+            SCNVector3(
+                0,
+                0,
+                0
+            )
+
+        higgsNode.isHidden = true
+
+        scene.rootNode.addChildNode(
+            higgsNode
+        )
+    }
+
+    // ========================================================
+    // MARK: Start
+    // ========================================================
+
+    func start() {
+
+        guard !running else {
+            return
+        }
+
+        running = true
+
+        timer =
+            Timer.scheduledTimer(
+                withTimeInterval: 1.0 / 60.0,
+                repeats: true
+            ) { [weak self] _ in
+
+                self?.performFrame()
+            }
+    }
+
+    // ========================================================
+    // MARK: Stop
+    // ========================================================
+
+    func stop() {
+
+        running = false
+
+        timer?.invalidate()
+
+        timer = nil
+    }
+
+    // ========================================================
+    // MARK: Frame
+    // ========================================================
+
+    private func performFrame() {
+
+        for _ in 0..<QRTLConstants.physicsStepsPerFrame {
+
+            updatePhysics(
+                dt: QRTLConstants.timeStep
+            )
+        }
+
+        updateScene()
+
+        objectWillChange.send()
+    }
+
+    // ========================================================
+    // MARK: Physics
+    // ========================================================
+
+    private func updatePhysics(
+        dt: Double
+    ) {
+
+        simulationTime += dt
+
+        if !collisionOccurred {
+
+            updateProtonApproach(
+                dt: dt
+            )
+
+            updateShellApproach()
+
+            if protonDistance <=
+                QRTLConstants.collisionDistance {
+
+                performCollision()
+            }
+
+            return
+        }
+
+        updateShellState(
+            dt: dt
+        )
+
+        updateLattice(
+            dt: dt
+        )
+
+        measureCollectiveMode()
+
+        updateHiggsLikeMode(
+            dt: dt
+        )
+    }
+
+    // ========================================================
+    // MARK: Proton Approach
+    // ========================================================
+
+    private func updateProtonApproach(
+        dt: Double
+    ) {
+
+        protonAX +=
+            QRTLConstants.protonSpeed * dt
+
+        protonBX -=
+            QRTLConstants.protonSpeed * dt
+
+        protonANode.position.x =
+            Float(protonAX) *
+            QRTLConstants.sceneScale
+
+        protonBNode.position.x =
+            Float(protonBX) *
+            QRTLConstants.sceneScale
+
+        protonDistance =
+            abs(
+                protonBX -
+                protonAX
+            )
+
+        protonAState = "MOVING"
+        protonBState = "MOVING"
+    }
+
+    // ========================================================
+    // MARK: Shell Approach
+    // ========================================================
+
+    private func updateShellApproach() {
+
+        let separation =
+            max(
+                protonDistance,
+                QRTLConstants.collisionDistance
+            )
+
+        let compression =
+            max(
+                0,
+                1.0 -
+                separation / 12.0
+            )
+
+        let scale =
+            Float(
+                1.0 +
+                compression * 0.35
+            )
+
+        protonAShellNode.scale =
+            SCNVector3(
+                scale,
+                scale,
+                scale
+            )
+
+        protonBShellNode.scale =
+            SCNVector3(
+                scale,
+                scale,
+                scale
+            )
+    }
+
+    // ========================================================
+    // MARK: Collision
+    // ========================================================
+
+    private func performCollision() {
+
+        guard !collisionOccurred else {
+            return
+        }
+
+        collisionOccurred = true
+
+        protonAState = "COLLIDED"
+        protonBState = "COLLIDED"
+
+        collisionTime =
+            simulationTime
+
+        protonAX = -0.275
+        protonBX = 0.275
+
+        protonANode.position.x =
+            Float(protonAX) *
+            QRTLConstants.sceneScale
+
+        protonBNode.position.x =
+            Float(protonBX) *
+            QRTLConstants.sceneScale
+
+        protonDistance =
+            abs(
+                protonBX -
+                protonAX
+            )
+
+        // ----------------------------------------------------
+        // Formation threshold is the energy available at the
+        // point where the equilibrium shell is destabilized.
+        //
+        // It is deliberately kept separate from the energy
+        // later measured in the resonant mode.
+        // ----------------------------------------------------
+
+        formationThresholdEnergy =
+            energyState.equilibriumShellEnergy +
+            QRTLConstants.collisionEnergy
+
+        energyState.kineticEnergy = 0
+
+        energyState.shellEnergy =
+            formationThresholdEnergy
+
+        energyState.deformation = 1.0
+
+        energyState.shellInstability = 1.0
+
+        energyState.isUnstable = true
+
+        // ----------------------------------------------------
+        // Collision transfers energy into the lattice.
+        // Crucially, this now supplies BOTH displacement AND
+        // velocity.
+        //
+        // The velocity is what turns a static deformation into
+        // a genuine oscillation.
+        // ----------------------------------------------------
+
+        exciteLatticeFromCollision()
+
+        protonAShellNode.scale =
+            SCNVector3(
+                1.7,
+                1.7,
+                1.7
+            )
+
+        protonBShellNode.scale =
+            SCNVector3(
+                1.7,
+                1.7,
+                1.7
+            )
+    }
+
+    // ========================================================
+    // MARK: Collision -> Lattice Oscillation
+    // ========================================================
+
+    private func exciteLatticeFromCollision() {
+
+        let radius =
+            QRTLConstants.excitationRadius
+
+        let radiusSquared =
+            radius * radius
+
+        var totalDepositedEnergy = 0.0
+
+        for index in cells.indices {
+
+            let position =
+                cells[index].position
+
+            let distanceSquared =
+                Double(
+                    simd_length_squared(
+                        position
+                    )
+                )
+
+            guard distanceSquared <=
+                    radiusSquared
+            else {
                 continue
             }
 
-            let averageNeighborEnergy =
-                neighborEnergy /
-                neighborCount
+            let distance =
+                sqrt(distanceSquared)
 
-            let averageNeighborPhase =
-                atan2(
-                    neighborPhaseY /
-                    neighborCount,
-                    neighborPhaseX /
-                    neighborCount
-                )
-
-            let averageNeighborTwist =
-                neighborTwist /
-                neighborCount
-
-            // ------------------------------------------------
-            // Local energy exchange.
-            // ------------------------------------------------
-
-            let energyDifference =
-                averageNeighborEnergy -
-                local.localEnergy
-
-            let exchange =
-                energyDifference *
-                0.08
-
-            updated[index].localEnergy =
+            let radialWeight =
                 max(
-                    0,
-                    local.localEnergy +
-                    exchange *
-                    timeStep *
-                    20
+                    0.0,
+                    1.0 -
+                    distance / radius
                 )
 
+            let share =
+                QRTLConstants.collisionEnergy *
+                radialWeight
+
+            guard share > 0 else {
+                continue
+            }
+
+            totalDepositedEnergy += share
+
             // ------------------------------------------------
-            // Restoring response.
+            // Radial collision direction
             // ------------------------------------------------
 
-            let restoring =
-                -local.displacement *
-                Float(
-                    restoringForce
-                )
+            let positionLength =
+                simd_length(position)
 
-            let neighborResponse =
-                SIMD3<Float>(
-                    Float(
-                        energyDifference *
-                        strainCoupling
-                    ),
-                    Float(
-                        energyDifference *
-                        strainCoupling
-                    ),
-                    Float(
-                        energyDifference *
-                        strainCoupling
+            let direction: SIMD3<Float>
+
+            if positionLength > 0.0001 {
+
+                direction =
+                    position /
+                    positionLength
+
+            } else {
+
+                direction =
+                    SIMD3<Float>(
+                        1,
+                        0,
+                        0
                     )
+            }
+
+            // ------------------------------------------------
+            // Energy -> displacement
+            // ------------------------------------------------
+
+            let displacementAmount =
+                sqrt(
+                    max(
+                        share,
+                        0
+                    )
+                ) * 0.20
+
+            cells[index].displacement +=
+                direction *
+                Float(displacementAmount)
+
+            // ------------------------------------------------
+            // Energy -> VELOCITY
+            //
+            // This is the critical change.
+            //
+            // The collision is an impulse. The cells are not
+            // simply left displaced; they are given motion.
+            // ------------------------------------------------
+
+            let impulse =
+                sqrt(
+                    max(
+                        share,
+                        0
+                    )
+                ) * 0.80
+
+            cells[index].velocity +=
+                direction *
+                Float(impulse)
+
+            // ------------------------------------------------
+            // Genuine oscillator coordinate
+            // ------------------------------------------------
+
+            cells[index].modeCoordinate +=
+                displacementAmount
+
+            cells[index].modeVelocity +=
+                impulse
+
+            // ------------------------------------------------
+            // Initial local energy
+            // ------------------------------------------------
+
+            cells[index].localEnergy +=
+                share
+
+            cells[index].amplitude =
+                max(
+                    cells[index].amplitude,
+                    displacementAmount
                 )
 
-            let acceleration =
-                restoring +
-                neighborResponse -
-                local.velocity *
-                Float(damping)
+            cells[index].couplingState =
+                min(
+                    1.0,
+                    cells[index].couplingState +
+                    radialWeight * 0.5
+                )
 
-            updated[index].velocity +=
-                acceleration *
-                Float(timeStep)
+            cells[index].localStrain =
+                min(
+                    1.0,
+                    cells[index].localStrain +
+                    radialWeight * 0.5
+                )
+        }
 
-            updated[index].displacement +=
-                updated[index].velocity *
-                Float(timeStep)
+        latticeExcited =
+            totalDepositedEnergy > 0
+    }
 
-            updated[index].localStrain =
+    // ========================================================
+    // MARK: Shell Dynamics
+    // ========================================================
+
+    private func updateShellState(
+        dt: Double
+    ) {
+
+        if !energyState.isUnstable {
+            return
+        }
+
+        // Shell instability begins high and relaxes as energy
+        // is transferred into collective lattice motion.
+
+        let transferRate =
+            min(
+                0.35,
+                latticeEnergy *
+                0.002
+            )
+
+        energyState.shellInstability =
+            max(
+                0,
+                energyState.shellInstability -
+                transferRate * dt
+            )
+
+        energyState.deformation =
+            energyState.shellInstability
+
+        energyState.shellEnergy =
+            formationThresholdEnergy *
+            (
+                0.25 +
+                0.75 *
+                energyState.shellInstability
+            )
+
+        if energyState.shellInstability < 0.05 {
+
+            energyState.isUnstable = false
+        }
+
+        let visualScale =
+            Float(
+                1.0 +
+                energyState.shellInstability *
+                0.9
+            )
+
+        protonAShellNode.scale =
+            SCNVector3(
+                visualScale,
+                visualScale,
+                visualScale
+            )
+
+        protonBShellNode.scale =
+            SCNVector3(
+                visualScale,
+                visualScale,
+                visualScale
+            )
+    }
+
+    // ========================================================
+    // MARK: Lattice Dynamics
+    // ========================================================
+
+    private func updateLattice(
+        dt: Double
+    ) {
+
+        guard !cells.isEmpty else {
+            return
+        }
+
+        var nextCells = cells
+
+        var calculatedLatticeEnergy = 0.0
+
+        var strainSum = 0.0
+
+        var twistSum = 0.0
+
+        var amplitudeSum = 0.0
+
+        var coherentSum = 0.0
+
+        // ----------------------------------------------------
+        // Synchronous CA update
+        //
+        // Every cell reads the previous state and writes into
+        // nextCells.
+        // ----------------------------------------------------
+
+        for index in cells.indices {
+
+            let cell =
+                cells[index]
+
+            // ------------------------------------------------
+            // Neighbor displacement coupling
+            // ------------------------------------------------
+
+            var neighborDisplacement =
+                SIMD3<Float>(
+                    0,
+                    0,
+                    0
+                )
+
+            var neighborMode =
+                0.0
+
+            var neighborPhase =
+                0.0
+
+            var neighborTwist =
+                0.0
+
+            var neighborStrain =
+                0.0
+
+            if !cell.neighbors.isEmpty {
+
+                for neighborIndex in
+                    cell.neighbors {
+
+                    let neighbor =
+                        cells[neighborIndex]
+
+                    neighborDisplacement +=
+                        neighbor.displacement
+
+                    neighborMode +=
+                        neighbor.modeCoordinate
+
+                    neighborPhase +=
+                        neighbor.phase
+
+                    neighborTwist +=
+                        neighbor.twist
+
+                    neighborStrain +=
+                        neighbor.localStrain
+                }
+
+                let count =
+                    Double(
+                        cell.neighbors.count
+                    )
+
+                neighborDisplacement /=
+                    Float(count)
+
+                neighborMode /=
+                    count
+
+                neighborPhase /=
+                    count
+
+                neighborTwist /=
+                    count
+
+                neighborStrain /=
+                    count
+            }
+
+            // ------------------------------------------------
+            // QRTL displacement restoring term
+            // ------------------------------------------------
+
+            let displacementRestoring =
+                -Float(QRTLConstants.restoringForce) *
+                cell.displacement
+
+            // ------------------------------------------------
+            // Neighbor coupling
+            // ------------------------------------------------
+
+            let displacementCoupling =
+                Float(
+                    QRTLConstants.coupling
+                ) *
+                (
+                    neighborDisplacement -
+                    cell.displacement
+                )
+
+            // ------------------------------------------------
+            // Strain
+            // ------------------------------------------------
+
+            let strain =
                 Double(
                     simd_length(
-                        updated[index].displacement
+                        cell.displacement
                     )
                 )
 
             // ------------------------------------------------
-            // Twist.
+            // Twist coupling
             // ------------------------------------------------
 
             let twistDelta =
-                averageNeighborTwist -
-                local.twist
+                neighborTwist -
+                cell.twist
 
-            updated[index].twist +=
-                twistDelta *
-                twistCoupling *
-                timeStep
+            let twistAcceleration =
+                QRTLConstants.twistCoupling *
+                twistDelta -
+                QRTLConstants.twistRestoring *
+                cell.twist
 
             // ------------------------------------------------
-            // Phase.
+            // Phase coupling
             // ------------------------------------------------
 
-            var phaseDelta =
-                averageNeighborPhase -
-                local.phase
-
-            phaseDelta =
+            let phaseDelta =
                 wrapPhase(
-                    phaseDelta
+                    neighborPhase -
+                    cell.phase
                 )
 
-            updated[index].phase +=
-                phaseDelta *
-                phaseCoupling *
-                timeStep
+            let phaseAcceleration =
+                QRTLConstants.phaseCoupling *
+                phaseDelta -
+                QRTLConstants.phaseRestoring *
+                cell.phase
 
-            updated[index].phase =
-                wrapPhase(
-                    updated[index].phase
+            // ------------------------------------------------
+            // Strain coupling
+            // ------------------------------------------------
+
+            let strainCoupling =
+                QRTLConstants.strainCoupling *
+                (
+                    neighborStrain -
+                    strain
                 )
 
             // ------------------------------------------------
-            // Visualization amplitude.
+            // Physical displacement acceleration
             // ------------------------------------------------
 
-            updated[index].amplitude =
-                sqrt(
-                    max(
-                        updated[index].localEnergy,
-                        0
-                    )
-                )
+            let displacementAcceleration =
+                displacementRestoring +
+                displacementCoupling
 
-            updated[index].couplingState =
-                min(
-                    1,
+            var newVelocity =
+                cell.velocity +
+                displacementAcceleration *
+                Float(dt)
+
+            // Damping
+            newVelocity *=
+                Float(
                     max(
                         0,
-                        updated[index].couplingState +
-                        abs(exchange) *
-                        0.01
+                        1.0 -
+                        QRTLConstants.damping *
+                        dt
                     )
                 )
-        }
 
-        cells =
-            updated
-    }
+            var newDisplacement =
+                cell.displacement +
+                newVelocity *
+                Float(dt)
 
-    // ========================================================
-    // MARK: - FIELD
-    // ========================================================
+            // ------------------------------------------------
+            // Genuine scalar oscillator
+            // ------------------------------------------------
+            //
+            // This oscillator is coupled to the same QRTL
+            // restoring/coupling structure rather than being
+            // given an externally prescribed phase.
+            // ------------------------------------------------
 
-    private func updateQRTLField() {
+            let oscillatorRestoring =
+                -QRTLConstants.restoringForce *
+                cell.modeCoordinate
 
-        let total =
-            cells.reduce(
-                0
-            ) {
-                $0 +
-                $1.localEnergy
+            let oscillatorCoupling =
+                QRTLConstants.coupling *
+                (
+                    neighborMode -
+                    cell.modeCoordinate
+                )
+
+            let oscillatorStrainCoupling =
+                strainCoupling
+
+            let oscillatorAcceleration =
+                oscillatorRestoring +
+                oscillatorCoupling +
+                oscillatorStrainCoupling
+
+            var newModeVelocity =
+                cell.modeVelocity +
+                oscillatorAcceleration *
+                dt
+
+            newModeVelocity *=
+                max(
+                    0,
+                    1.0 -
+                    QRTLConstants.damping *
+                    dt
+                )
+
+            var newModeCoordinate =
+                cell.modeCoordinate +
+                newModeVelocity *
+                dt
+
+            // ------------------------------------------------
+            // Prevent numerical runaway while preserving the
+            // oscillatory state.
+            // ------------------------------------------------
+
+            if !newModeCoordinate.isFinite {
+                newModeCoordinate = 0
             }
 
-        localizedEnergy =
-            max(
-                0,
-                total
-            )
+            if !newModeVelocity.isFinite {
+                newModeVelocity = 0
+            }
 
-        qrtlField =
-            cells.isEmpty
-            ? 0
-            : localizedEnergy /
-              Double(
-                  cells.count
-              )
-    }
+            if !newDisplacement.x.isFinite ||
+                !newDisplacement.y.isFinite ||
+                !newDisplacement.z.isFinite {
 
-    // ========================================================
-    // MARK: - CURRENT
-    // ========================================================
+                newDisplacement =
+                    SIMD3<Float>(
+                        0,
+                        0,
+                        0
+                    )
 
-    private func updateQRTLCurrent() {
+                newVelocity =
+                    SIMD3<Float>(
+                        0,
+                        0,
+                        0
+                    )
+            }
 
-        guard !cells.isEmpty else {
+            // ------------------------------------------------
+            // Twist dynamics
+            // ------------------------------------------------
 
-            qrtlCurrent = 0
+            var newTwist =
+                cell.twist +
+                twistAcceleration *
+                dt
 
-            return
-        }
+            newTwist *=
+                max(
+                    0,
+                    1.0 -
+                    QRTLConstants.damping *
+                    dt
+                )
 
-        var sum = 0.0
+            // ------------------------------------------------
+            // Phase dynamics
+            //
+            // IMPORTANT:
+            //
+            // Phase is no longer initialized from collision
+            // energy. It is derived from the actual oscillator
+            // state.
+            // ------------------------------------------------
 
-        for cell in cells {
+            let oscillatorMagnitude =
+                sqrt(
+                    max(
+                        0,
+                        QRTLConstants.restoringForce
+                    )
+                )
 
-            let speed =
+            let phase =
+                atan2(
+                    newModeVelocity,
+                    oscillatorMagnitude *
+                    newModeCoordinate
+                )
+
+            let oldPhase =
+                cell.phase
+
+            let phaseChange =
+                wrapPhase(
+                    phase -
+                    oldPhase
+                )
+
+            var newUnwrappedPhase =
+                cell.unwrappedPhase +
+                phaseChange
+
+            if !newUnwrappedPhase.isFinite {
+                newUnwrappedPhase = 0
+            }
+
+            // ------------------------------------------------
+            // Amplitude
+            // ------------------------------------------------
+
+            let newAmplitude =
+                sqrt(
+                    newModeCoordinate *
+                    newModeCoordinate +
+                    (
+                        newModeVelocity /
+                        max(
+                            oscillatorMagnitude,
+                            0.000001
+                        )
+                    ) *
+                    (
+                        newModeVelocity /
+                        max(
+                            oscillatorMagnitude,
+                            0.000001
+                        )
+                    )
+                )
+
+            // ------------------------------------------------
+            // Local oscillator energy
+            // ------------------------------------------------
+
+            let oscillatorEnergy =
+                0.5 *
+                (
+                    newModeVelocity *
+                    newModeVelocity
+                ) +
+                0.5 *
+                QRTLConstants.restoringForce *
+                (
+                    newModeCoordinate *
+                    newModeCoordinate
+                )
+
+            let displacementEnergy =
+                0.5 *
                 Double(
-                    simd_length(
-                        cell.velocity
+                    simd_length_squared(
+                        newVelocity
+                    )
+                ) +
+                0.5 *
+                QRTLConstants.restoringForce *
+                Double(
+                    simd_length_squared(
+                        newDisplacement
                     )
                 )
 
-            sum +=
-                cell.localEnergy *
-                speed *
-                (
-                    1 +
-                    abs(
-                        cell.twist
+            let totalCellEnergy =
+                max(
+                    0,
+                    oscillatorEnergy +
+                    displacementEnergy
+                )
+
+            // ------------------------------------------------
+            // Coupling state
+            // ------------------------------------------------
+
+            let couplingState =
+                min(
+                    1.0,
+                    max(
+                        0,
+                        cell.couplingState +
+                        (
+                            QRTLConstants.coupling *
+                            abs(
+                                neighborMode -
+                                cell.modeCoordinate
+                            )
+                        ) *
+                        dt
                     )
                 )
-        }
 
-        qrtlCurrent =
-            sum /
-            Double(
-                cells.count
-            )
-    }
+            // ------------------------------------------------
+            // Write new cell
+            // ------------------------------------------------
 
-    // ========================================================
-    // MARK: - FLOW
-    // ========================================================
+            nextCells[index].displacement =
+                newDisplacement
 
-    private func updateBorlagrinoFlow() {
+            nextCells[index].velocity =
+                newVelocity
 
-        guard !cells.isEmpty else {
+            nextCells[index].modeCoordinate =
+                newModeCoordinate
 
-            borlagrinoFlow = 0
+            nextCells[index].modeVelocity =
+                newModeVelocity
 
-            return
-        }
+            nextCells[index].modeAcceleration =
+                oscillatorAcceleration
 
-        var total = 0.0
+            nextCells[index].twist =
+                newTwist
 
-        for cell in cells {
+            nextCells[index].previousPhase =
+                oldPhase
 
-            total +=
-                abs(
-                    cell.twist
-                ) *
-                cell.localEnergy *
-                (
-                    1 +
-                    abs(
-                        cell.localStrain
-                    )
-                )
-        }
+            nextCells[index].phase =
+                phase
 
-        borlagrinoFlow =
-            total /
-            Double(
-                cells.count
-            )
-    }
+            nextCells[index].unwrappedPhase =
+                newUnwrappedPhase
 
-    // ========================================================
-    // MARK: - COLLECTIVE STATE
-    // ========================================================
+            nextCells[index].amplitude =
+                newAmplitude
 
-    private func updateCollectiveState() {
+            nextCells[index].localStrain =
+                strain
 
-        guard !cells.isEmpty else {
+            nextCells[index].localEnergy =
+                totalCellEnergy
 
-            phaseCoherence = 0
-            averageStrain = 0
-            averageTwist = 0
+            nextCells[index].couplingState =
+                couplingState
 
-            return
-        }
+            calculatedLatticeEnergy +=
+                totalCellEnergy
 
-        var phaseX = 0.0
+            strainSum +=
+                strain
 
-        var phaseY = 0.0
+            twistSum +=
+                abs(newTwist)
 
-        var strain = 0.0
+            amplitudeSum +=
+                newAmplitude
 
-        var twist = 0.0
-
-        for cell in cells {
-
-            phaseX +=
+            coherentSum +=
                 cos(
-                    cell.phase
-                )
-
-            phaseY +=
-                sin(
-                    cell.phase
-                )
-
-            strain +=
-                abs(
-                    cell.localStrain
-                )
-
-            twist +=
-                abs(
-                    cell.twist
+                    phase -
+                    phase
                 )
         }
+
+        cells = nextCells
+
+        latticeEnergy =
+            calculatedLatticeEnergy
 
         let count =
             Double(
-                cells.count
-            )
-
-        phaseCoherence =
-            min(
-                1,
-                sqrt(
-                    phaseX *
-                    phaseX +
-                    phaseY *
-                    phaseY
-                ) /
-                count
+                max(
+                    cells.count,
+                    1
+                )
             )
 
         averageStrain =
-            strain /
-            count
+            strainSum / count
 
         averageTwist =
-            twist /
-            count
+            twistSum / count
+
+        collectiveAmplitude =
+            amplitudeSum / count
+
+        // ----------------------------------------------------
+        // Determine coherence from actual phase relationships.
+        // ----------------------------------------------------
+
+        calculateCollectiveCoherence()
+
+        latticeExcited =
+            latticeEnergy > 0.000001
     }
 
     // ========================================================
-    // MARK: - HIGGS-LIKE MODE
+    // MARK: Collective Coherence
     // ========================================================
 
-    private func updateHiggsLikeMode() {
+    private func calculateCollectiveCoherence() {
 
-        guard hasCollided else {
+        guard !cells.isEmpty else {
+
+            collectiveCoherence = 0
+
             return
         }
 
-        let instability =
-            shellInstability
+        var real = 0.0
+        var imaginary = 0.0
 
-        let coherence =
-            phaseCoherence
+        var totalWeight = 0.0
 
-        let localized =
-            localizedEnergy
+        for cell in cells {
 
-        let current =
-            max(
-                qrtlCurrent,
-                0
+            let weight =
+                cell.localEnergy +
+                cell.amplitude *
+                cell.amplitude
+
+            guard weight > 0.000001 else {
+                continue
+            }
+
+            real +=
+                weight *
+                cos(cell.phase)
+
+            imaginary +=
+                weight *
+                sin(cell.phase)
+
+            totalWeight +=
+                weight
+        }
+
+        guard totalWeight > 0 else {
+
+            collectiveCoherence = 0
+
+            return
+        }
+
+        collectiveCoherence =
+            min(
+                1.0,
+                sqrt(
+                    real * real +
+                    imaginary * imaginary
+                ) /
+                totalWeight
             )
+    }
 
-        let excitationDriver =
-            localized *
-            coherence *
-            (1 + current)
+    // ========================================================
+    // MARK: Measure Collective Mode
+    // ========================================================
+    //
+    // The resonant frequency is now measured from repeated
+    // motion of the lattice.
+    //
+    // No energy -> mass shortcut is used.
+    //
+    // The algorithm:
+    //
+    // 1. Build a weighted collective displacement signal.
+    // 2. Detect repeated zero crossings.
+    // 3. Measure the period between equivalent crossings.
+    // 4. Frequency = 1 / period.
+    //
+    // This means frequency cannot become nonzero unless the
+    // lattice actually oscillates.
+    // ========================================================
 
-        let formationStrength =
-            instability *
-            excitationDriver *
-            qrtlCoupling
+    private func measureCollectiveMode() {
+
+        var weightedSignal = 0.0
+        var weightedVelocity = 0.0
+        var totalWeight = 0.0
+
+        for cell in cells {
+
+            let weight =
+                max(
+                    cell.localEnergy,
+                    0
+                ) +
+                cell.amplitude *
+                cell.amplitude
+
+            guard weight > 0.000001 else {
+                continue
+            }
+
+            weightedSignal +=
+                cell.modeCoordinate *
+                weight
+
+            weightedVelocity +=
+                cell.modeVelocity *
+                weight
+
+            totalWeight +=
+                weight
+        }
+
+        guard totalWeight > 0 else {
+            return
+        }
+
+        let collectiveSignal =
+            weightedSignal /
+            totalWeight
+
+        let collectiveVelocity =
+            weightedVelocity /
+            totalWeight
 
         // ----------------------------------------------------
-        // Formation condition.
+        // Save the initial state.
         // ----------------------------------------------------
 
-        if !higgsMode.active {
+        if !phaseReferenceEstablished {
 
-            let thresholdSatisfied =
-                instability > 0.10 &&
-                coherence > 0.45 &&
-                localized > 0.01 &&
-                formationStrength >
-                    modeThreshold
+            previousCollectiveSignal =
+                collectiveSignal
 
-            if thresholdSatisfied {
+            previousCollectiveVelocity =
+                collectiveVelocity
 
-                let available =
-                    energyState.latticeEnergy
+            phaseReferenceEstablished = true
 
-                let modeAllocation =
-                    min(
-                        available * 0.002,
-                        formationStrength *
-                        timeStep *
-                        10
+            return
+        }
+
+        // ----------------------------------------------------
+        // Positive-going zero crossing:
+        //
+        // previous signal <= 0
+        // current signal > 0
+        // velocity > 0
+        // ----------------------------------------------------
+
+        let positiveCrossing =
+            previousCollectiveSignal <= 0 &&
+            collectiveSignal > 0 &&
+            collectiveVelocity > 0
+
+        if positiveCrossing {
+
+            if let previousCrossing =
+                lastPositiveCrossingTime {
+
+                let period =
+                    simulationTime -
+                    previousCrossing
+
+                if period > 0.000001 &&
+                    period.isFinite {
+
+                    measuredPeriods.append(
+                        period
                     )
 
-                if modeAllocation > 0 {
+                    // Keep only recent periods so that the
+                    // resonant frequency follows the current
+                    // lattice state.
+                    if measuredPeriods.count > 8 {
 
-                    energyState.latticeEnergy -=
-                        modeAllocation
+                        measuredPeriods.removeFirst()
+                    }
 
-                    energyState.modeEnergy +=
-                        modeAllocation
-
-                    higgsMode.active =
-                        true
-
-                    higgsMode.age =
-                        0
-
-                    higgsMode.energy =
-                        modeAllocation
-
-                    higgsMode.amplitude =
-                        min(
-                            1,
-                            sqrt(
-                                modeAllocation
-                            )
+                    let averagePeriod =
+                        measuredPeriods.reduce(
+                            0,
+                            +
+                        ) /
+                        Double(
+                            measuredPeriods.count
                         )
 
-                    higgsMode.coherence =
-                        coherence
+                    if averagePeriod > 0 {
 
-                    higgsMode.phase =
-                        collectivePhase()
-
-                    higgsMode.shellEnergy =
-                        energyState.shellEnergy
-
-                    higgsMode.shellInstability =
-                        instability
-
-                    higgsMode.massGeV =
-                        simulatedMassComparison(
-                            modeAllocation
-                        )
-
-                    stage =
-                        "Higgs-like Mode Forming"
+                        resonantFrequencyHz =
+                            1.0 /
+                            averagePeriod
+                    }
                 }
             }
 
-            return
+            lastPositiveCrossingTime =
+                simulationTime
         }
 
+        previousCollectiveSignal =
+            collectiveSignal
+
+        previousCollectiveVelocity =
+            collectiveVelocity
+    }
+
+    // ========================================================
+    // MARK: Resonant Frequency -> Mass
+    // ========================================================
+    //
+    // E = h f
+    //
+    // E is derived from the measured oscillation frequency.
+    //
+    // E is then converted to GeV.
+    //
+    // No artificial "energy * 125" conversion exists.
+    // ========================================================
+
+    private func massFromFrequency(
+        _ frequencyHz: Double
+    ) -> Double {
+
+        guard frequencyHz.isFinite,
+              frequencyHz > 0
+        else {
+            return 0
+        }
+
+        let energyJoules =
+            QRTLConstants.planckConstant *
+            frequencyHz
+
+        let energyGeV =
+            energyJoules /
+            QRTLConstants.joulePerGeV
+
+        return energyGeV
+    }
+
+    // ========================================================
+    // MARK: Higgs-Like Mode
+    // ========================================================
+
+    private func updateHiggsLikeMode(
+        dt: Double
+    ) {
+
+        higgsMode.age += dt
+
         // ----------------------------------------------------
-        // Active mode.
+        // Resonant mode energy is the energy associated with
+        // the coherent, oscillating portion of the lattice.
         // ----------------------------------------------------
 
-        higgsMode.age +=
-            timeStep
+        var weightedEnergy = 0.0
+        var totalEnergyWeight = 0.0
+
+        var weightedAmplitude = 0.0
+
+        var phaseReal = 0.0
+        var phaseImaginary = 0.0
+
+        var phaseWeight = 0.0
+
+        for cell in cells {
+
+            let oscillationEnergy =
+                0.5 *
+                cell.modeVelocity *
+                cell.modeVelocity +
+                0.5 *
+                QRTLConstants.restoringForce *
+                cell.modeCoordinate *
+                cell.modeCoordinate
+
+            guard oscillationEnergy > 0 else {
+                continue
+            }
+
+            let weight =
+                oscillationEnergy
+
+            weightedEnergy +=
+                oscillationEnergy
+
+            totalEnergyWeight +=
+                weight
+
+            weightedAmplitude +=
+                abs(
+                    cell.modeCoordinate
+                ) *
+                weight
+
+            phaseReal +=
+                weight *
+                cos(cell.phase)
+
+            phaseImaginary +=
+                weight *
+                sin(cell.phase)
+
+            phaseWeight +=
+                weight
+        }
+
+        resonantModeEnergy =
+            max(
+                0,
+                weightedEnergy
+            )
+
+        let modeAmplitude: Double
+
+        if totalEnergyWeight > 0 {
+
+            modeAmplitude =
+                weightedAmplitude /
+                totalEnergyWeight
+
+        } else {
+
+            modeAmplitude = 0
+        }
+
+        let modeCoherence: Double
+
+        if phaseWeight > 0 {
+
+            modeCoherence =
+                min(
+                    1.0,
+                    sqrt(
+                        phaseReal *
+                        phaseReal +
+                        phaseImaginary *
+                        phaseImaginary
+                    ) /
+                    phaseWeight
+                )
+
+        } else {
+
+            modeCoherence = 0
+        }
+
+        resonantMassGeV =
+            massFromFrequency(
+                resonantFrequencyHz
+            )
+
+        massDistanceFromTarget =
+            abs(
+                QRTLConstants.targetHiggsMassGeV -
+                resonantMassGeV
+            )
+
+        higgsMode.frequencyHz =
+            resonantFrequencyHz
+
+        higgsMode.massGeV =
+            resonantMassGeV
+
+        higgsMode.energy =
+            resonantModeEnergy
+
+        higgsMode.amplitude =
+            modeAmplitude
 
         higgsMode.coherence =
-            coherence
-
-        higgsMode.phase =
-            collectivePhase()
+            modeCoherence
 
         higgsMode.shellEnergy =
             energyState.shellEnergy
 
         higgsMode.shellInstability =
-            instability
+            energyState.shellInstability
 
         // ----------------------------------------------------
-        // Lattice → mode.
+        // Candidate activation is based on simulated behavior,
+        // not on simply assigning 125 GeV.
         // ----------------------------------------------------
 
-        let latticeAvailable =
-            energyState.latticeEnergy
+        let sufficientEnergy =
+            resonantModeEnergy >
+            0.000001
 
-        let growth =
-            min(
-                latticeAvailable,
-                formationStrength *
-                timeStep *
-                0.05
-            )
+        let sufficientCoherence =
+            modeCoherence >
+            0.50
 
-        if growth > 0 {
+        let measuredFrequency =
+            resonantFrequencyHz >
+            0
 
-            energyState.latticeEnergy -=
-                growth
+        let shellWasDestabilized =
+            formationThresholdEnergy >
+            energyState.equilibriumShellEnergy
 
-            energyState.modeEnergy +=
-                growth
+        higgsMode.active =
+            collisionOccurred &&
+            sufficientEnergy &&
+            sufficientCoherence &&
+            measuredFrequency &&
+            shellWasDestabilized
 
-            higgsMode.energy +=
-                growth
+        if higgsMode.active {
+
+            higgsNode.isHidden = false
+
+            let visualScale =
+                Float(
+                    max(
+                        0.05,
+                        min(
+                            2.5,
+                            modeAmplitude *
+                            8.0
+                        )
+                    )
+                )
+
+            higgsNode.scale =
+                SCNVector3(
+                    visualScale,
+                    visualScale,
+                    visualScale
+                )
+
+            let pulse =
+                0.85 +
+                0.15 *
+                sin(
+                    simulationTime *
+                    8.0
+                )
+
+            higgsNode.opacity =
+                CGFloat(
+                    max(
+                        0.15,
+                        min(
+                            1.0,
+                            modeCoherence *
+                            pulse
+                        )
+                    )
+                )
+
+        } else {
+
+            higgsNode.isHidden = true
         }
 
         // ----------------------------------------------------
-        // Mode → lattice during decay.
+        // Decay / return toward equilibrium
         // ----------------------------------------------------
 
-        let decay =
-            min(
-                higgsMode.energy,
-                higgsMode.energy *
-                damping *
-                timeStep *
-                20
-            )
-
-        if decay > 0 {
-
-            higgsMode.energy -=
-                decay
-
-            energyState.modeEnergy -=
-                decay
-
-            energyState.latticeEnergy +=
-                decay
+        if !energyState.isUnstable &&
+            higgsMode.active {
 
             higgsMode.decayProgress =
                 min(
-                    1,
+                    1.0,
                     higgsMode.decayProgress +
-                    decay
+                    dt * 0.15
                 )
-        }
 
-        higgsMode.amplitude =
-            min(
-                1,
-                sqrt(
-                    max(
-                        higgsMode.energy,
-                        0
+            if higgsMode.decayProgress >= 1.0 {
+
+                higgsMode.active = false
+
+                higgsNode.isHidden = true
+            }
+        }
+    }
+
+    // ========================================================
+    // MARK: Scene Update
+    // ========================================================
+
+    private func updateScene() {
+
+        for index in cells.indices {
+
+            let cell =
+                cells[index]
+
+            let node =
+                cellNodes[index]
+
+            let displacement =
+                cell.displacement
+
+            let position =
+                cell.position
+
+            node.position =
+                SCNVector3(
+                    (
+                        position.x +
+                        displacement.x
+                    ) *
+                    QRTLConstants.sceneScale,
+
+                    (
+                        position.y +
+                        displacement.y
+                    ) *
+                    QRTLConstants.sceneScale,
+
+                    (
+                        position.z +
+                        displacement.z
+                    ) *
+                    QRTLConstants.sceneScale
+                )
+
+            // ------------------------------------------------
+            // Energy controls visibility and size.
+            // ------------------------------------------------
+
+            let energy =
+                min(
+                    1.0,
+                    cell.localEnergy
+                )
+
+            let amplitude =
+                min(
+                    1.0,
+                    cell.amplitude * 5.0
+                )
+
+            let scale =
+                Float(
+                    0.5 +
+                    amplitude * 1.8
+                )
+
+            node.scale =
+                SCNVector3(
+                    scale,
+                    scale,
+                    scale
+                )
+
+            if let material =
+                node.geometry?.firstMaterial {
+
+                material.diffuse.contents =
+                    UIColor(
+                        red: CGFloat(
+                            min(
+                                1.0,
+                                energy * 2.0
+                            )
+                        ),
+                        green: CGFloat(
+                            min(
+                                1.0,
+                                0.25 +
+                                cell.couplingState
+                            )
+                        ),
+                        blue: CGFloat(
+                            min(
+                                1.0,
+                                0.35 +
+                                collectiveCoherence
+                            )
+                        ),
+                        alpha: CGFloat(
+                            0.25 +
+                            energy * 0.75
+                        )
                     )
-                )
-            )
-
-        higgsMode.massGeV =
-            simulatedMassComparison(
-                higgsMode.energy
-            )
-
-        if higgsMode.amplitude < 0.01 {
-
-            higgsMode.active =
-                false
-
-            stage =
-                "Collective Mode Decaying"
-        }
-    }
-
-    // ========================================================
-    // MARK: - PHASE
-    // ========================================================
-
-    private func collectivePhase() -> Double {
-
-        guard !cells.isEmpty else {
-            return 0
+            }
         }
 
-        var x = 0.0
+        // ----------------------------------------------------
+        // Keep protons visible at collision.
+        // ----------------------------------------------------
 
-        var y = 0.0
+        protonANode.position.x =
+            Float(protonAX) *
+            QRTLConstants.sceneScale
 
-        for cell in cells {
+        protonBNode.position.x =
+            Float(protonBX) *
+            QRTLConstants.sceneScale
 
-            x +=
-                cos(
-                    cell.phase
-                )
+        // ----------------------------------------------------
+        // Higgs-like visual mode
+        // ----------------------------------------------------
 
-            y +=
+        if !higgsNode.isHidden {
+
+            let pulse =
+                1.0 +
+                0.25 *
                 sin(
-                    cell.phase
+                    simulationTime *
+                    10.0
+                )
+
+            let scale =
+                Float(
+                    max(
+                        0.05,
+                        higgsMode.amplitude *
+                        10.0
+                    )
+                ) *
+                Float(pulse)
+
+            higgsNode.scale =
+                SCNVector3(
+                    scale,
+                    scale,
+                    scale
                 )
         }
-
-        return atan2(
-            y,
-            x
-        )
     }
 
     // ========================================================
-    // MARK: - MASS COMPARISON
-    // ========================================================
-
-    private func simulatedMassComparison(
-        _ energy: Double
-    ) -> Double {
-
-        guard energy > 0 else {
-            return 0
-        }
-
-        return min(
-            comparisonMassGeV,
-            energy *
-            comparisonMassGeV
-        )
-    }
-
-    // ========================================================
-    // MARK: - ENERGY ACCOUNTING
-    // ========================================================
-
-    private func updateEnergyConservation() {
-
-        energyState.fieldEnergy =
-            0
-
-        energyState.latticeEnergy =
-            max(
-                0,
-                cells.reduce(
-                    0
-                ) {
-                    $0 +
-                    $1.localEnergy
-                }
-            )
-
-        energyState.modeEnergy =
-            max(
-                0,
-                higgsMode.energy
-            )
-    }
-
-    // ========================================================
-    // MARK: - PHASE WRAP
-    // ========================================================
-
-    private func wrapPhase(
-        _ phase: Double
-    ) -> Double {
-
-        var value =
-            phase
-
-        while value >
-                Double.pi {
-
-            value -=
-                2 *
-                Double.pi
-        }
-
-        while value <
-                -Double.pi {
-
-            value +=
-                2 *
-                Double.pi
-        }
-
-        return value
-    }
-
-    // ========================================================
-    // MARK: - RESET
+    // MARK: Reset
     // ========================================================
 
     func reset() {
 
-        timer?.invalidate()
+        stop()
 
-        hasCollided = false
+        simulationTime = 0
 
-        time = 0
+        protonAX =
+            -QRTLConstants.initialProtonX
 
-        stage =
-            "Protons Approaching"
+        protonBX =
+            QRTLConstants.initialProtonX
 
-        isPaused = false
-
-        proton1 =
-            QRTLProton(
-                position:
-                    SIMD3<Float>(
-                        -6,
-                        0,
-                        0
-                    ),
-                velocity:
-                    SIMD3<Float>(
-                        protonApproachSpeed,
-                        0,
-                        0
-                    ),
-                energy: 4.0,
-                shellEnergy: 1.0,
-                shellInstability: 0,
-                excitation: 0,
-                collided: false,
-                colorIndex: 0
+        protonDistance =
+            abs(
+                protonBX -
+                protonAX
             )
 
-        proton2 =
-            QRTLProton(
-                position:
-                    SIMD3<Float>(
-                        6,
-                        0,
-                        0
-                    ),
-                velocity:
-                    SIMD3<Float>(
-                        -protonApproachSpeed,
-                        0,
-                        0
-                    ),
-                energy: 4.0,
-                shellEnergy: 1.0,
-                shellInstability: 0,
-                excitation: 0,
-                collided: false,
-                colorIndex: 1
-            )
+        collisionOccurred = false
+
+        latticeExcited = false
+
+        protonAState = "MOVING"
+        protonBState = "MOVING"
 
         energyState =
             QRTLEnergyState()
@@ -2313,702 +2884,92 @@ final class QRTLSimulation: ObservableObject {
         higgsMode =
             HiggsLikeMode()
 
-        qrtlField = 0
-
-        qrtlCurrent = 0
-
-        borlagrinoFlow = 0
-
-        localizedEnergy = 0
-
-        phaseCoherence = 0
+        collectiveCoherence = 0
+        collectiveAmplitude = 0
 
         averageStrain = 0
-
         averageTwist = 0
 
-        createLattice()
+        latticeEnergy = 0
 
-        recordInitialEnergy()
+        resonantModeEnergy = 0
+
+        resonantFrequencyHz = 0
+
+        resonantMassGeV = 0
+
+        formationThresholdEnergy = 0
+
+        massDistanceFromTarget =
+            QRTLConstants.targetHiggsMassGeV
+
+        previousCollectiveSignal = 0
+
+        previousCollectiveVelocity = 0
+
+        lastPositiveCrossingTime = nil
+
+        measuredPeriods.removeAll()
+
+        phaseReferenceEstablished = false
+
+        protonANode.position =
+            SCNVector3(
+                Float(protonAX) *
+                    QRTLConstants.sceneScale,
+                0,
+                0
+            )
+
+        protonBNode.position =
+            SCNVector3(
+                Float(protonBX) *
+                    QRTLConstants.sceneScale,
+                0,
+                0
+            )
+
+        protonAShellNode.scale =
+            SCNVector3(
+                1,
+                1,
+                1
+            )
+
+        protonBShellNode.scale =
+            SCNVector3(
+                1,
+                1,
+                1
+            )
+
+        higgsNode.isHidden = true
+
+        buildLattice()
 
         start()
     }
-}
 
-// ============================================================
-// MARK: - SCENE VIEW
-// ============================================================
+    // ========================================================
+    // MARK: Utilities
+    // ========================================================
 
-struct QRTLSceneView:
-    UIViewRepresentable {
+    private func wrapPhase(
+        _ phase: Double
+    ) -> Double {
 
-    @ObservedObject var simulation:
-        QRTLSimulation
+        var result = phase
 
-    func makeCoordinator()
-        -> Coordinator {
-
-        Coordinator()
-    }
-
-    func makeUIView(
-        context: Context
-    ) -> SCNView {
-
-        let view =
-            SCNView()
-
-        view.backgroundColor =
-            UIColor.black
-
-        view.allowsCameraControl =
-            true
-
-        view.autoenablesDefaultLighting =
-            false
-
-        let scene =
-            SCNScene()
-
-        view.scene =
-            scene
-
-        let cameraNode =
-            SCNNode()
-
-        cameraNode.camera =
-            SCNCamera()
-
-        cameraNode.camera?.fieldOfView =
-            55
-
-        cameraNode.position =
-            SCNVector3(
-                0,
-                8,
-                18
-            )
-
-        let cameraTarget =
-            SCNNode()
-
-        cameraTarget.position =
-            SCNVector3(
-                0,
-                0,
-                0
-            )
-
-        scene.rootNode.addChildNode(
-            cameraTarget
-        )
-
-        let lookAt =
-            SCNLookAtConstraint(
-                target: cameraTarget
-            )
-
-        lookAt.isGimbalLockEnabled =
-            true
-
-        cameraNode.constraints =
-            [lookAt]
-
-        scene.rootNode.addChildNode(
-            cameraNode
-        )
-
-        context.coordinator.cameraNode =
-            cameraNode
-
-        let lightNode =
-            SCNNode()
-
-        let light =
-            SCNLight()
-
-        light.type =
-            .omni
-
-        light.intensity =
-            1400
-
-        lightNode.light =
-            light
-
-        lightNode.position =
-            SCNVector3(
-                0,
-                10,
-                10
-            )
-
-        scene.rootNode.addChildNode(
-            lightNode
-        )
-
-        let ambientNode =
-            SCNNode()
-
-        let ambient =
-            SCNLight()
-
-        ambient.type =
-            .ambient
-
-        ambient.intensity =
-            250
-
-        ambientNode.light =
-            ambient
-
-        scene.rootNode.addChildNode(
-            ambientNode
-        )
-
-        // ----------------------------------------------------
-        // Create the lattice visualization ONCE.
-        // ----------------------------------------------------
-
-        createLatticeNodes(
-            scene: scene,
-            simulation: simulation,
-            coordinator:
-                context.coordinator
-        )
-
-        return view
-    }
-
-    func updateUIView(
-        _ view: SCNView,
-        context: Context
-    ) {
-
-        guard let scene =
-            view.scene
-        else {
-            return
+        while result > Double.pi {
+            result -=
+                2.0 * Double.pi
         }
 
-        updateLatticeNodes(
-            simulation: simulation,
-            coordinator:
-                context.coordinator
-        )
+        while result < -Double.pi {
+            result +=
+                2.0 * Double.pi
+        }
 
-        updateProtonNode(
-            context.coordinator.proton1Node,
-            proton:
-                simulation.proton1,
-            color:
-                .cyan
-        )
-
-        updateProtonNode(
-            context.coordinator.proton2Node,
-            proton:
-                simulation.proton2,
-            color:
-                .red
-        )
-
-        updateHiggsNode(
-            context.coordinator.higgsNode,
-            mode:
-                simulation.higgsMode
-        )
-
-        _ = scene
+        return result
     }
-
-    // ========================================================
-    // MARK: - CREATE LATTICE NODES
-    // ========================================================
-
-    private func createLatticeNodes(
-        scene: SCNScene,
-        simulation: QRTLSimulation,
-        coordinator: Coordinator
-    ) {
-
-        let container =
-            SCNNode()
-
-        container.name =
-            "lattice"
-
-        scene.rootNode.addChildNode(
-            container
-        )
-
-        let spacing: Float =
-            0.75
-
-        for cell in simulation.cells {
-
-            let sphere =
-                SCNSphere(
-                    radius: 0.035
-                )
-
-            let material =
-                SCNMaterial()
-
-            material.diffuse.contents =
-                UIColor.blue
-
-            sphere.firstMaterial =
-                material
-
-            let node =
-                SCNNode(
-                    geometry: sphere
-                )
-
-            node.position =
-                SCNVector3(
-                    cell.position.x *
-                    spacing,
-                    cell.position.y *
-                    spacing,
-                    cell.position.z *
-                    spacing
-                )
-
-            container.addChildNode(
-                node
-            )
-
-            coordinator.latticeNodes.append(
-                node
-            )
-        }
-
-        // ----------------------------------------------------
-        // Proton nodes.
-        // ----------------------------------------------------
-
-        coordinator.proton1Node =
-            createProtonNode(
-                color:
-                    .cyan
-            )
-
-        coordinator.proton2Node =
-            createProtonNode(
-                color:
-                    .red
-            )
-
-        container.addChildNode(
-            coordinator.proton1Node
-        )
-
-        container.addChildNode(
-            coordinator.proton2Node
-        )
-
-        // ----------------------------------------------------
-        // Higgs-like mode node.
-        // ----------------------------------------------------
-
-        coordinator.higgsNode =
-            SCNNode()
-
-        container.addChildNode(
-            coordinator.higgsNode
-        )
-    }
-
-    // ========================================================
-    // MARK: - UPDATE LATTICE NODES
-    // ========================================================
-
-    private func updateLatticeNodes(
-        simulation: QRTLSimulation,
-        coordinator: Coordinator
-    ) {
-
-        guard
-            coordinator.latticeNodes.count ==
-                simulation.cells.count
-        else {
-            return
-        }
-
-        let maxEnergy =
-            max(
-                simulation.localizedEnergy,
-                0.000001
-            )
-
-        let spacing: Float =
-            0.75
-
-        for index in simulation.cells.indices {
-
-            let cell =
-                simulation.cells[index]
-
-            let node =
-                coordinator.latticeNodes[index]
-
-            let normalized =
-                min(
-                    max(
-                        cell.localEnergy /
-                        maxEnergy,
-                        0
-                    ),
-                    1
-                )
-
-            let radius =
-                CGFloat(
-                    0.025 +
-                    normalized *
-                    0.12
-                )
-
-            if let sphere =
-                node.geometry
-                as? SCNSphere {
-
-                sphere.radius =
-                    radius
-
-                if normalized > 0.65 {
-
-                    sphere.firstMaterial?
-                        .diffuse.contents =
-                        UIColor.orange
-
-                    sphere.firstMaterial?
-                        .emission.contents =
-                        UIColor.orange
-
-                } else if normalized > 0.20 {
-
-                    sphere.firstMaterial?
-                        .diffuse.contents =
-                        UIColor.yellow
-
-                    sphere.firstMaterial?
-                        .emission.contents =
-                        UIColor.clear
-
-                } else {
-
-                    sphere.firstMaterial?
-                        .diffuse.contents =
-                        UIColor.blue
-
-                    sphere.firstMaterial?
-                        .emission.contents =
-                        UIColor.clear
-                }
-            }
-
-            node.position =
-                SCNVector3(
-                    (
-                        cell.position.x +
-                        cell.displacement.x
-                    ) *
-                    spacing,
-
-                    (
-                        cell.position.y +
-                        cell.displacement.y
-                    ) *
-                    spacing,
-
-                    (
-                        cell.position.z +
-                        cell.displacement.z
-                    ) *
-                    spacing
-                )
-        }
-    }
-
-    // ========================================================
-    // MARK: - PROTON NODE
-    // ========================================================
-
-    private func createProtonNode(
-        color: UIColor
-    ) -> SCNNode {
-
-        let protonNode =
-            SCNNode()
-
-        // Body
-
-        let body =
-            SCNSphere(
-                radius: 0.38
-            )
-
-        let bodyMaterial =
-            SCNMaterial()
-
-        bodyMaterial.diffuse.contents =
-            color
-
-        bodyMaterial.emission.contents =
-            color.withAlphaComponent(
-                0.35
-            )
-
-        body.firstMaterial =
-            bodyMaterial
-
-        let bodyNode =
-            SCNNode(
-                geometry:
-                    body
-            )
-
-        protonNode.addChildNode(
-            bodyNode
-        )
-
-        // Shell
-
-        let shell =
-            SCNSphere(
-                radius: 0.58
-            )
-
-        let shellMaterial =
-            SCNMaterial()
-
-        shellMaterial.diffuse.contents =
-            color.withAlphaComponent(
-                0.10
-            )
-
-        shellMaterial.emission.contents =
-            color.withAlphaComponent(
-                0.25
-            )
-
-        shell.firstMaterial =
-            shellMaterial
-
-        let shellNode =
-            SCNNode(
-                geometry:
-                    shell
-            )
-
-        shellNode.name =
-            "shell"
-
-        protonNode.addChildNode(
-            shellNode
-        )
-
-        // Quark markers
-
-        for index in 0..<3 {
-
-            let quark =
-                SCNSphere(
-                    radius: 0.075
-                )
-
-            quark.firstMaterial =
-                SCNMaterial()
-
-            quark.firstMaterial?
-                .diffuse.contents =
-                UIColor.white
-
-            let qNode =
-                SCNNode(
-                    geometry:
-                        quark
-                )
-
-            let angle =
-                Float(index) *
-                Float.pi *
-                2 /
-                3
-
-            qNode.position =
-                SCNVector3(
-                    cos(angle) * 0.22,
-                    sin(angle) * 0.22,
-                    0
-                )
-
-            protonNode.addChildNode(
-                qNode
-            )
-        }
-
-        return protonNode
-    }
-
-    // ========================================================
-    // MARK: - UPDATE PROTON
-    // ========================================================
-
-    private func updateProtonNode(
-        _ node: SCNNode,
-        proton: QRTLProton,
-        color: UIColor
-    ) {
-
-        node.position =
-            SCNVector3(
-                proton.position.x * 0.75,
-                proton.position.y * 0.75,
-                proton.position.z * 0.75
-            )
-
-        guard
-            let shell =
-                node.childNode(
-                    withName:
-                        "shell",
-                    recursively:
-                        false
-                ),
-            let geometry =
-                shell.geometry
-                as? SCNSphere
-        else {
-            return
-        }
-
-        geometry.radius =
-            CGFloat(
-                0.58 +
-                min(
-                    proton.shellInstability,
-                    4
-                ) *
-                0.20
-            )
-
-        geometry.firstMaterial?
-            .diffuse.contents =
-            color.withAlphaComponent(
-                0.10
-            )
-
-        geometry.firstMaterial?
-            .emission.contents =
-            color.withAlphaComponent(
-                0.25
-            )
-    }
-
-    // ========================================================
-    // MARK: - HIGGS NODE
-    // ========================================================
-
-    private func updateHiggsNode(
-        _ node: SCNNode,
-        mode: HiggsLikeMode
-    ) {
-
-        guard mode.active else {
-
-            node.isHidden =
-                true
-
-            return
-        }
-
-        node.isHidden =
-            false
-
-        node.position =
-            SCNVector3(
-                0,
-                0,
-                0
-            )
-
-        if node.childNodes.isEmpty {
-
-            let sphere =
-                SCNSphere(
-                    radius: 0.8
-                )
-
-            let material =
-                SCNMaterial()
-
-            material.diffuse.contents =
-                UIColor.purple.withAlphaComponent(
-                    0.30
-                )
-
-            material.emission.contents =
-                UIColor.purple.withAlphaComponent(
-                    0.55
-                )
-
-            sphere.firstMaterial =
-                material
-
-            node.addChildNode(
-                SCNNode(
-                    geometry:
-                        sphere
-                )
-            )
-        }
-
-        if let sphereNode =
-            node.childNodes.first,
-           let sphere =
-            sphereNode.geometry
-            as? SCNSphere {
-
-            sphere.radius =
-                CGFloat(
-                    0.6 +
-                    mode.amplitude *
-                    2.0
-                )
-        }
-    }
-
-    // ========================================================
-    // MARK: - COORDINATOR
-    // ========================================================
-
-    final class Coordinator {
-
-        weak var cameraNode:
-            SCNNode?
-
-        var latticeNodes:
-            [SCNNode] = []
-
-        var proton1Node:
-            SCNNode = SCNNode()
-
-        var proton2Node:
-            SCNNode = SCNNode()
-
-        var higgsNode:
-            SCNNode = SCNNode()
-    }
-}
-
-// ============================================================
-// MARK: - PREVIEW
-// ============================================================
-
-#Preview {
-    ContentView()
 }
