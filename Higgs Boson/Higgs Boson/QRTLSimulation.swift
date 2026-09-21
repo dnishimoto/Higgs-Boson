@@ -1198,35 +1198,23 @@ final class QRTLSimulation: ObservableObject {
     // ========================================================
 
     private func updatePhysics(dt: Double) {
-
-        guard dt > 0.0 else {
-            return
-        }
+        guard dt > 0.0 else { return }
 
         simulationTime += dt
 
-        // --------------------------------------------------------
+        // ========================================================
         // PROTON APPROACH
-        //
-        // This occurs before any lattice dynamics.
-        // The collision is determined only by proton separation.
-        // --------------------------------------------------------
+        // ========================================================
 
         if !collisionOccurred {
 
-            updateProtonApproach(
-                dt: dt
+            // The ONLY operation that moves the protons.
+            updateProtonApproach(dt: dt)
+
+            // Collision is checked after movement.
+            protonDistance = abs(
+                protonBX - protonAX
             )
-
-            updateShellApproach()
-
-            // Recalculate directly from the positions so collision
-            // detection cannot depend on a stale protonDistance value.
-            protonDistance =
-                abs(
-                    protonBX -
-                    protonAX
-                )
 
             if protonDistance <=
                 QRTLConstants.collisionDistance {
@@ -1237,40 +1225,29 @@ final class QRTLSimulation: ObservableObject {
             return
         }
 
-        // --------------------------------------------------------
-        // POST-COLLISION DYNAMICS
-        // --------------------------------------------------------
+        // ========================================================
+        // AFTER COLLISION
+        // ========================================================
 
-        updateShellState(
-            dt: dt
-        )
+        updateShellState(dt: dt)
 
-        updateLattice(
-            dt: dt
-        )
+        updateLattice(dt: dt)
 
         measureCollectiveMode()
 
         recordCollectiveLatticeSignal()
 
-        updateHiggsLikeMode(
-            dt: dt
-        )
+        updateHiggsLikeMode(dt: dt)
     }
-
     private func updateProtonApproach(dt: Double) {
         guard dt > 0.0 else { return }
 
-        let speed = max(
-            QRTLConstants.protonSpeed,
-            1.0e-12
-        )
+        let speed = QRTLConstants.protonSpeed
 
-        // Move directly toward each other.
+        // Continuous approach toward one another.
         protonAX += speed * dt
         protonBX -= speed * dt
 
-        // Calculate current separation.
         protonDistance = abs(
             protonBX - protonAX
         )
@@ -1278,7 +1255,6 @@ final class QRTLSimulation: ObservableObject {
         protonAState = "MOVING"
         protonBState = "MOVING"
 
-        // Update SceneKit positions.
         protonANode.position.x =
             Float(protonAX) *
             QRTLConstants.sceneScale
