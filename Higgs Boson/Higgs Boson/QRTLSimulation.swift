@@ -1197,46 +1197,56 @@ final class QRTLSimulation: ObservableObject {
 
     // ========================================================
 
-    private func updatePhysics(
+    private func updatePhysics(dt: Double) {
 
-        dt: Double
-
-    ) {
+        guard dt > 0.0 else {
+            return
+        }
 
         simulationTime += dt
+
+        // --------------------------------------------------------
+        // PROTON APPROACH
+        //
+        // This occurs before any lattice dynamics.
+        // The collision is determined only by proton separation.
+        // --------------------------------------------------------
 
         if !collisionOccurred {
 
             updateProtonApproach(
-
                 dt: dt
-
             )
 
             updateShellApproach()
 
-            if protonDistance <=
+            // Recalculate directly from the positions so collision
+            // detection cannot depend on a stale protonDistance value.
+            protonDistance =
+                abs(
+                    protonBX -
+                    protonAX
+                )
 
+            if protonDistance <=
                 QRTLConstants.collisionDistance {
 
                 performCollision()
-
             }
 
             return
-
         }
 
+        // --------------------------------------------------------
+        // POST-COLLISION DYNAMICS
+        // --------------------------------------------------------
+
         updateShellState(
-
             dt: dt
-
         )
 
         updateLattice(
-
             dt: dt
-
         )
 
         measureCollectiveMode()
@@ -1244,18 +1254,9 @@ final class QRTLSimulation: ObservableObject {
         recordCollectiveLatticeSignal()
 
         updateHiggsLikeMode(
-
             dt: dt
-
         )
-
     }
-
-    // ========================================================
-
-    // MARK: Proton Approach
-
-    // ========================================================
 
     private func updateProtonApproach(dt: Double) {
         guard dt > 0.0 else { return }
