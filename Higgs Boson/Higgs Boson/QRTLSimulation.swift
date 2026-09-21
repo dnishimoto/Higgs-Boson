@@ -1261,38 +1261,24 @@ final class QRTLSimulation: ObservableObject {
     private func updateProtonApproach(dt: Double) {
         guard dt > 0.0 else { return }
 
-        // Protons move toward the center until the collision threshold
-        // is reached. Their approach is independent of lattice dynamics.
         let speed = max(
             QRTLConstants.protonSpeed,
             1.0e-12
         )
 
+        // Move directly toward each other.
         protonAX += speed * dt
         protonBX -= speed * dt
 
-        // Prevent the positions from crossing the collision point.
-        let collisionDistance =
-            QRTLConstants.collisionDistance
-
-        let halfDistance =
-            collisionDistance * 0.5
-
-        if protonAX >= -halfDistance {
-            protonAX = -halfDistance
-        }
-
-        if protonBX <= halfDistance {
-            protonBX = halfDistance
-        }
-
-        protonDistance =
-            abs(protonBX - protonAX)
+        // Calculate current separation.
+        protonDistance = abs(
+            protonBX - protonAX
+        )
 
         protonAState = "MOVING"
         protonBState = "MOVING"
 
-        // Update the visible proton positions.
+        // Update SceneKit positions.
         protonANode.position.x =
             Float(protonAX) *
             QRTLConstants.sceneScale
