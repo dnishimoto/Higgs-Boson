@@ -16,11 +16,9 @@ import SceneKit
 
 final class QRTLSimulation: ObservableObject {
 
-    // ========================================================
-
-    // MARK: Published State
-
-    // ========================================================
+    @Published var collisionKineticEnergyJ: Double = 0.0
+    @Published var collisionKineticEnergyGeV: Double = 0.0
+    @Published var collisionKineticEnergyTeV: Double = 0.0
 
     @Published var energyState =
 
@@ -1519,26 +1517,45 @@ final class QRTLSimulation: ObservableObject {
 
         // ----------------------------------------------------
         // COLLISION ENERGY
-        //
-        // Keep the incoming relativistic proton kinetic energy
-        // available to the lattice. Do NOT set it to zero.
-        //
-        // At 6.8 TeV per proton:
-        // approximately 13.598 TeV of kinetic energy is
-        // available from the two incoming protons.
         // ----------------------------------------------------
 
         energyState.kineticEnergy =
             QRTLConstants.twoProtonKineticEnergyJ
 
+        collisionKineticEnergyJ =
+            energyState.kineticEnergy
+
+        collisionKineticEnergyGeV =
+            collisionKineticEnergyJ /
+            QRTLConstants.joulesPerGeV
+
+        collisionKineticEnergyTeV =
+            collisionKineticEnergyGeV /
+            1_000.0
+
+        print(
+            """
+            ====================================================
+            QRTL PROTON COLLISION
+            ====================================================
+            Proton A + Proton B collision detected
+
+            Collision Kinetic Energy:
+              Joules: \(String(format: "%.6e",
+                                collisionKineticEnergyJ)) J
+              GeV:    \(String(format: "%.3f",
+                                collisionKineticEnergyGeV)) GeV
+              TeV:    \(String(format: "%.6f",
+                                collisionKineticEnergyTeV)) TeV
+
+            This energy is retained as the incoming energy
+            available to the QRTL lattice.
+            ====================================================
+            """
+        )
+
         // ----------------------------------------------------
         // FORMATION THRESHOLD
-        //
-        // The equilibrium shell energy is destabilized by the
-        // incoming collision energy.
-        //
-        // This is kept separate from the energy subsequently
-        // measured in the collective resonant mode.
         // ----------------------------------------------------
 
         formationThresholdEnergy =
@@ -1559,13 +1576,6 @@ final class QRTLSimulation: ObservableObject {
 
         // ----------------------------------------------------
         // COLLISION → QUARK/CHARGE LATTICE
-        //
-        // The lattice receives the collision energy and converts
-        // it into displacement, velocity, strain, and local
-        // oscillator excitation.
-        //
-        // exciteLatticeFromCollision() reads the collision energy
-        // directly from energyState.kineticEnergy.
         // ----------------------------------------------------
 
         exciteLatticeFromCollision()

@@ -3,4 +3,52 @@
    uuid = "E5DBB5CE-A283-40A9-8F1F-DA9F327926C7"
    type = "1"
    version = "2.0">
+   <Breakpoints>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            uuid = "AED108D2-E577-4A0E-B8D6-782484E0DECF"
+            shouldBeEnabled = "No"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "Higgs Boson/QRTLSimulation.swift"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "1561"
+            endingLineNumber = "1561"
+            landmarkName = "performCollision()"
+            landmarkType = "7">
+            <Locations>
+               <Location
+                  uuid = "AED108D2-E577-4A0E-B8D6-782484E0DECF - cd47c70ccd4059c1"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "Higgs_Boson.QRTLSimulation.performCollision() -&gt; ()"
+                  moduleName = "Higgs Boson.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/davidnishimoto/Desktop/Higgs-Boson/Higgs%20Boson/Higgs%20Boson/QRTLSimulation.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "1571"
+                  endingLineNumber = "1571">
+               </Location>
+               <Location
+                  uuid = "AED108D2-E577-4A0E-B8D6-782484E0DECF - cd47c70ccd40588f"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "Higgs_Boson.QRTLSimulation.performCollision() -&gt; ()"
+                  moduleName = "Higgs Boson.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/davidnishimoto/Desktop/Higgs-Boson/Higgs%20Boson/Higgs%20Boson/QRTLSimulation.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "1561"
+                  endingLineNumber = "1561">
+               </Location>
+            </Locations>
+         </BreakpointContent>
+      </BreakpointProxy>
+   </Breakpoints>
 </Bucket>
