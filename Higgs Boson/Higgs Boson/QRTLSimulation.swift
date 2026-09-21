@@ -5,20 +5,223 @@
 //  Created by David Nishimoto on 9/21/26.
 //
 
-import Foundation
 import SwiftUI
-import Combine
-import SceneKit
 
-// MARK: - QRTL SIMULATION
+import SceneKit
+import SwiftUI
+import simd
+
+import Combine
+
+enum QRTLConstants {
+
+    static let targetHiggsMassGeV = 125.0
+    static let planckConstant = 6.62607015e-34
+    static let speedOfLight = 299_792_458.0
+    static let spectralSampleCount = 4096
+    static let joulePerGeV = 1.602176634e-10
+
+    static let latticeSize = 17
+    static let coupling = 0.16
+    static let twistCoupling = 0.08
+    static let phaseCoupling = 0.12
+    static let strainCoupling = 0.06
+    static let restoringForce = 0.20
+    static let damping = 0.008
+    static let twistRestoring = 0.08
+    static let phaseRestoring = 0.03
+
+    // Physical QRTL mechanical scale. Cell displacement and velocity
+    // remain in lattice units; energy is calculated after conversion
+    // to meters and seconds.
+    static let effectiveMassKg = 1.0e-24
+    static let effectiveStiffnessNPerM = 1.0e28
+    static let latticeCellSpacingMeters = 1.0e-15
+    static let collisionKineticFractionToPotential = 0.50
+    static let dampingRatePerSecond = 2.0e23
+    static let shellRelaxationRatePerSecond = 1.0e24
+
+    // LHC Run-3 beam values used for the incoming collision budget.
+    static let protonRestEnergyGeV = 0.93827208816
+    static let lhcProtonBeamEnergyTeV = 6.8
+    static let lhcProtonBeamEnergyGeV = lhcProtonBeamEnergyTeV * 1_000.0
+    static let lhcLorentzFactor = lhcProtonBeamEnergyGeV / protonRestEnergyGeV
+    static let lhcProtonSpeed: Double = {
+        let gamma = lhcLorentzFactor
+        guard gamma > 1.0 else { return 0.0 }
+        return speedOfLight * sqrt(1.0 - 1.0 / (gamma * gamma))
+    }()
+    static let singleProtonKineticEnergyGeV =
+        (lhcLorentzFactor - 1.0) * protonRestEnergyGeV
+    static let twoProtonKineticEnergyGeV =
+        2.0 * singleProtonKineticEnergyGeV
+    static let protonProtonCollisionEnergyGeV =
+        2.0 * lhcProtonBeamEnergyGeV
+    static let collisionKineticEnergyJ =
+        twoProtonKineticEnergyGeV * joulePerGeV
+    static let protonProtonCollisionEnergyJ =
+        protonProtonCollisionEnergyGeV * joulePerGeV
+
+    static let initialProtonX = 6.0
+    static let protonSpeed = 4.0
+    static let collisionDistance = 0.55
+    static let timeStep = 1.0e-27
+    static let physicsStepsPerFrame = 4
+    static let excitationRadius = 3.0
+    static let activeEnergyThresholdJ = 1.0e-18
+    static let sceneScale: Float = 0.75
+}
+
 
 // ============================================================
 
+// MARK: - QRTL CELL
+
+// ============================================================
+
+struct QRTLCell {
+
+    let index: Int
+
+    let gridX: Int
+
+    let gridY: Int
+
+    let gridZ: Int
+
+    let position: SIMD3<Float>
+
+    // --------------------------------------------------------
+
+    // QRTL lattice state
+
+    // --------------------------------------------------------
+
+    var displacement = SIMD3<Float>(0, 0, 0)
+
+    var velocity = SIMD3<Float>(0, 0, 0)
+
+    var twist: Double = 0
+
+    var phase: Double = 0
+
+    var amplitude: Double = 0
+
+    var localEnergy: Double = 0
+
+    var localStrain: Double = 0
+
+    var couplingState: Double = 0
+
+    // --------------------------------------------------------
+
+    // Genuine oscillator state
+
+    // --------------------------------------------------------
+
+    var modeCoordinate: Double = 0
+
+    var modeVelocity: Double = 0
+
+    var modeAcceleration: Double = 0
+    var modeDirection = SIMD3<Float>(0, 0, 0)
+
+    // Phase history is now generated from the oscillator.
+
+    var previousPhase: Double = 0
+
+    var unwrappedPhase: Double = 0
+
+    // --------------------------------------------------------
+
+    // Neighbor indices
+
+    // --------------------------------------------------------
+
+    var neighbors: [Int] = []
+
+}
+
+// ============================================================
+
+// MARK: - ENERGY STATE
+
+// ============================================================
+
+struct QRTLEnergyState {
+
+    var equilibriumShellEnergy: Double = QRTLConstants.targetHiggsMassGeV * QRTLConstants.joulePerGeV
+
+    var shellEnergy: Double = QRTLConstants.targetHiggsMassGeV * QRTLConstants.joulePerGeV
+
+    var kineticEnergy: Double = 0
+
+    var deformation: Double = 0
+
+    var shellInstability: Double = 0
+
+    var isUnstable: Bool = false
+
+}
+
+// ============================================================
+
+// MARK: - HIGGS-LIKE MODE
+
+// ============================================================
+
+struct HiggsLikeMode {
+
+    var active: Bool = false
+
+    var age: Double = 0
+
+    var energy: Double = 0
+
+    var frequencyHz: Double = 0
+
+    var massGeV: Double = 0
+
+    var amplitude: Double = 0
+
+    var phase: Double = 0
+
+    var coherence: Double = 0
+
+    var shellEnergy: Double = 0
+
+    var shellInstability: Double = 0
+
+    var decayProgress: Double = 0
+
+}
+
+// ============================================================
+
+// ============================================================
+// MARK: - COLLECTIVE SPECTRAL ANALYSIS
+// ============================================================
+
+struct QRTLSpectralResult {
+    let peakIndex: Int
+    let frequencyHz: Double
+    let angularFrequency: Double
+    let wavelengthMeters: Double
+    let peakAmplitude: Double
+    let sampleCount: Int
+    let sampleInterval: Double
+    let samplingFrequencyHz: Double
+    let nyquistFrequencyHz: Double
+}
+
+
 final class QRTLSimulation: ObservableObject {
 
-    @Published var collisionKineticEnergyJ: Double = 0.0
-    @Published var collisionKineticEnergyGeV: Double = 0.0
-    @Published var collisionKineticEnergyTeV: Double = 0.0
+    // ========================================================
+
+    // MARK: Published State
+
+    // ========================================================
 
     @Published var energyState =
 
@@ -50,6 +253,33 @@ final class QRTLSimulation: ObservableObject {
     @Published var spectralPeakAmplitude = 0.0
     @Published var spectralSampleCount = 0
     @Published var spectralNyquistHz = 0.0
+    @Published var collisionKineticEnergyJ = 0.0
+    @Published var collisionKineticEnergyGeV = 0.0
+    @Published var collisionKineticEnergyTeV = 0.0
+    @Published var depositedEnergyJ = 0.0
+    @Published var depositedEnergyGeV = 0.0
+    @Published var depositedEnergyTeV = 0.0
+    @Published var currentLatticeEnergyJ = 0.0
+    @Published var currentLatticeEnergyGeV = 0.0
+    @Published var currentLatticeEnergyTeV = 0.0
+    @Published var resonantModeEnergyJ = 0.0
+    @Published var resonantModeEnergyGeV = 0.0
+    @Published var resonantModeEnergyTeV = 0.0
+    @Published var dissipatedEnergyJ = 0.0
+    @Published var dissipatedEnergyGeV = 0.0
+    @Published var dissipatedEnergyTeV = 0.0
+    @Published var energyBalanceErrorJ = 0.0
+    @Published var energyBalanceErrorGeV = 0.0
+    @Published var initialAffectedCellCount = 0
+    @Published var energyRadius = 0.0
+    @Published var peakCellEnergyGeV = 0.0
+    @Published var peakEnergyFraction = 0.0
+    @Published var peakCollectiveAmplitude = 0.0
+    @Published var propagationTime = 0.0
+    @Published var resonanceDevelopment = 0.0
+    @Published var dampingFraction = 0.0
+    @Published var returnedToEquilibrium = false
+
 
     @Published var resonantMassGeV = 0.0
 
@@ -163,7 +393,7 @@ final class QRTLSimulation: ObservableObject {
 
         cells.reduce(into: 0) { result, cell in
 
-            if cell.localEnergy > 0.000001 {
+            if cell.localEnergy > QRTLConstants.activeEnergyThresholdJ {
 
                 result += 1
 
@@ -960,358 +1190,12 @@ final class QRTLSimulation: ObservableObject {
         objectWillChange.send()
 
     }
-    // ========================================================
-
-    // MARK: Collision -> Lattice Oscillation
 
     // ========================================================
 
-    // ============================================================
-    // MARK: - COLLISION ENERGY → QRTL LATTICE
-    // ============================================================
+    // MARK: Physics
 
-    private func exciteLatticeFromCollision() {
-
-         let radius =
-
-             QRTLConstants.excitationRadius
-
-         let radiusSquared =
-
-             radius * radius
-
-         var totalDepositedEnergy = 0.0
-
-         for index in cells.indices {
-
-             let position =
-
-                 cells[index].position
-
-             let distanceSquared =
-
-                 Double(
-
-                     simd_length_squared(
-
-                         position
-
-                     )
-
-                 )
-
-             guard distanceSquared <=
-
-                     radiusSquared
-
-             else {
-
-                 continue
-
-             }
-
-             let distance =
-
-                 sqrt(distanceSquared)
-
-             let radialWeight =
-
-                 max(
-
-                     0.0,
-
-                     1.0 -
-
-                     distance / radius
-
-                 )
-
-             let share =
-
-                 QRTLConstants.collisionEnergy *
-
-                 radialWeight
-
-             guard share > 0 else {
-
-                 continue
-
-             }
-
-             totalDepositedEnergy += share
-
-             // ------------------------------------------------
-
-             // Radial collision direction
-
-             // ------------------------------------------------
-
-             let positionLength =
-
-                 simd_length(position)
-
-             let direction: SIMD3<Float>
-
-             if positionLength > 0.0001 {
-
-                 direction =
-
-                     position /
-
-                     positionLength
-
-             } else {
-
-                 direction =
-
-                     SIMD3<Float>(
-
-                         1,
-
-                         0,
-
-                         0
-
-                     )
-
-             }
-
-             // ------------------------------------------------
-
-             // Energy -> displacement
-
-             // ------------------------------------------------
-
-             let displacementAmount =
-
-                 sqrt(
-
-                     max(
-
-                         share,
-
-                         0
-
-                     )
-
-                 ) * 0.20
-
-             cells[index].displacement +=
-
-                 direction *
-
-                 Float(displacementAmount)
-
-             // ------------------------------------------------
-
-             // Energy -> VELOCITY
-
-             //
-
-             // This is the critical change.
-
-             //
-
-             // The collision is an impulse. The cells are not
-
-             // simply left displaced; they are given motion.
-
-             // ------------------------------------------------
-
-             let impulse =
-
-                 sqrt(
-
-                     max(
-
-                         share,
-
-                         0
-
-                     )
-
-                 ) * 0.80
-
-             cells[index].velocity +=
-
-                 direction *
-
-                 Float(impulse)
-
-             // ------------------------------------------------
-
-             // Genuine oscillator coordinate
-
-             // ------------------------------------------------
-
-             cells[index].modeCoordinate +=
-
-                 displacementAmount
-
-             cells[index].modeVelocity +=
-
-                 impulse
-
-             // ------------------------------------------------
-
-             // Initial local energy
-
-             // ------------------------------------------------
-
-             cells[index].localEnergy +=
-
-                 share
-
-             cells[index].amplitude =
-
-                 max(
-
-                     cells[index].amplitude,
-
-                     displacementAmount
-
-                 )
-
-             cells[index].couplingState =
-
-                 min(
-
-                     1.0,
-
-                     cells[index].couplingState +
-
-                     radialWeight * 0.5
-
-                 )
-
-             cells[index].localStrain =
-
-                 min(
-
-                     1.0,
-
-                     cells[index].localStrain +
-
-                     radialWeight * 0.5
-
-                 )
-
-         }
-
-         latticeExcited =
-
-             totalDepositedEnergy > 0
-
-     }
-
-     // ========================================================
-
-     // MARK: Shell Dynamics
-
-     // ========================================================
-
-     private func updateShellState(
-
-         dt: Double
-
-     ) {
-
-         if !energyState.isUnstable {
-
-             return
-
-         }
-
-         // Shell instability begins high and relaxes as energy
-
-         // is transferred into collective lattice motion.
-
-         let transferRate =
-
-             min(
-
-                 0.35,
-
-                 latticeEnergy *
-
-                 0.002
-
-             )
-
-         energyState.shellInstability =
-
-             max(
-
-                 0,
-
-                 energyState.shellInstability -
-
-                 transferRate * dt
-
-             )
-
-         energyState.deformation =
-
-             energyState.shellInstability
-
-         energyState.shellEnergy =
-
-             formationThresholdEnergy *
-
-             (
-
-                 0.25 +
-
-                 0.75 *
-
-                 energyState.shellInstability
-
-             )
-
-         if energyState.shellInstability < 0.05 {
-
-             energyState.isUnstable = false
-
-         }
-
-         let visualScale =
-
-             Float(
-
-                 1.0 +
-
-                 energyState.shellInstability *
-
-                 0.9
-
-             )
-
-         protonAShellNode.scale =
-
-             SCNVector3(
-
-                 visualScale,
-
-                 visualScale,
-
-                 visualScale
-
-             )
-
-         protonBShellNode.scale =
-
-             SCNVector3(
-
-                 visualScale,
-
-                 visualScale,
-
-                 visualScale
-
-             )
-
-     }
-
+    // ========================================================
 
     private func updatePhysics(
 
@@ -1357,12 +1241,13 @@ final class QRTLSimulation: ObservableObject {
 
         measureCollectiveMode()
 
+        recordCollectiveLatticeSignal()
+
         updateHiggsLikeMode(
 
             dt: dt
 
         )
-        recordCollectiveLatticeSignal()
 
     }
 
@@ -1480,1028 +1365,991 @@ final class QRTLSimulation: ObservableObject {
 
     }
 
-    // ============================================================
-    // MARK: - PROTON COLLISION
-    // ============================================================
+    // ========================================================
+
+    // MARK: Collision
+
+    // ========================================================
 
     private func performCollision() {
-
-        guard !collisionOccurred else {
-            return
-        }
+        guard !collisionOccurred else { return }
 
         collisionOccurred = true
-
         protonAState = "COLLIDED"
         protonBState = "COLLIDED"
-
-        collisionTime =
-            simulationTime
+        collisionTime = simulationTime
 
         protonAX = -0.275
         protonBX = 0.275
+        protonANode.position.x = Float(protonAX) * QRTLConstants.sceneScale
+        protonBNode.position.x = Float(protonBX) * QRTLConstants.sceneScale
+        protonDistance = abs(protonBX - protonAX)
 
-        protonANode.position.x =
-            Float(protonAX) *
-            QRTLConstants.sceneScale
-
-        protonBNode.position.x =
-            Float(protonBX) *
-            QRTLConstants.sceneScale
-
-        protonDistance =
-            abs(
-                protonBX -
-                protonAX
-            )
-
-        // ----------------------------------------------------
-        // COLLISION ENERGY
-        // ----------------------------------------------------
-
-        energyState.kineticEnergy =
-            QRTLConstants.twoProtonKineticEnergyJ
-
-        collisionKineticEnergyJ =
-            energyState.kineticEnergy
-
-        collisionKineticEnergyGeV =
-            collisionKineticEnergyJ /
-            QRTLConstants.joulesPerGeV
-
-        collisionKineticEnergyTeV =
-            collisionKineticEnergyGeV /
-            1_000.0
-
-        print(
-            """
-            ====================================================
-            QRTL PROTON COLLISION
-            ====================================================
-            Proton A + Proton B collision detected
-
-            Collision Kinetic Energy:
-              Joules: \(String(format: "%.6e",
-                                collisionKineticEnergyJ)) J
-              GeV:    \(String(format: "%.3f",
-                                collisionKineticEnergyGeV)) GeV
-              TeV:    \(String(format: "%.6f",
-                                collisionKineticEnergyTeV)) TeV
-
-            This energy is retained as the incoming energy
-            available to the QRTL lattice.
-            ====================================================
-            """
-        )
-
-        // ----------------------------------------------------
-        // FORMATION THRESHOLD
-        // ----------------------------------------------------
+        collisionKineticEnergyJ = QRTLConstants.collisionKineticEnergyJ
+        collisionKineticEnergyGeV = collisionKineticEnergyJ / QRTLConstants.joulePerGeV
+        collisionKineticEnergyTeV = collisionKineticEnergyGeV / 1_000.0
+        energyState.kineticEnergy = collisionKineticEnergyJ
 
         formationThresholdEnergy =
-            energyState.equilibriumShellEnergy +
-            energyState.kineticEnergy
-
-        energyState.shellEnergy =
-            formationThresholdEnergy
-
-        energyState.deformation =
-            1.0
-
-        energyState.shellInstability =
-            1.0
-
-        energyState.isUnstable =
-            true
-
-        // ----------------------------------------------------
-        // COLLISION → QUARK/CHARGE LATTICE
-        // ----------------------------------------------------
+            energyState.equilibriumShellEnergy + collisionKineticEnergyJ
+        energyState.shellEnergy = formationThresholdEnergy
+        energyState.deformation = 1.0
+        energyState.shellInstability = 1.0
+        energyState.isUnstable = true
 
         exciteLatticeFromCollision()
 
-        // ----------------------------------------------------
-        // PROTON DISPERSION
-        // ----------------------------------------------------
+        protonANode.isHidden = true
+        protonBNode.isHidden = true
+        protonAShellNode.isHidden = true
+        protonBShellNode.isHidden = true
+        protonAState = "DISPERSED → QUARK/CHARGE LATTICE"
+        protonBState = "DISPERSED → QUARK/CHARGE LATTICE"
 
-        protonANode.isHidden =
-            true
-
-        protonBNode.isHidden =
-            true
-
-        protonAShellNode.isHidden =
-            true
-
-        protonBShellNode.isHidden =
-            true
-
-        protonAState =
-            "DISPERSED → QUARK/CHARGE LATTICE"
-
-        protonBState =
-            "DISPERSED → QUARK/CHARGE LATTICE"
-
-        protonAShellNode.scale =
-            SCNVector3(
-                1.7,
-                1.7,
-                1.7
-            )
-
-        protonBShellNode.scale =
-            SCNVector3(
-                1.7,
-                1.7,
-                1.7
-            )
+        print("""
+        ====================================================
+        QRTL PROTON COLLISION
+        ====================================================
+        Collision kinetic energy:
+          \(String(format: "%.6e", collisionKineticEnergyJ)) J
+          \(String(format: "%.3f", collisionKineticEnergyGeV)) GeV
+          \(String(format: "%.6f", collisionKineticEnergyTeV)) TeV
+        ====================================================
+        """)
     }
-  
-    private func updateLattice(
+
+    // ========================================================
+    // MARK: Collision -> Lattice Excitation
+    // ========================================================
+
+    private func exciteLatticeFromCollision() {
+        let radius = QRTLConstants.excitationRadius
+        let radiusSquared = radius * radius
+        var candidates: [(index: Int, weight: Double, direction: SIMD3<Float>)] = []
+        var totalWeight = 0.0
+
+        for index in cells.indices {
+            let position = cells[index].position
+            let distanceSquared = Double(simd_length_squared(position))
+            guard distanceSquared <= radiusSquared else { continue }
+            let distance = sqrt(distanceSquared)
+            let weight = max(0.0, 1.0 - distance / radius)
+            guard weight > 0 else { continue }
+            let length = simd_length(position)
+            let direction = length > 0.0001 ? position / length : SIMD3<Float>(1, 0, 0)
+            candidates.append((index, weight, direction))
+            totalWeight += weight
+        }
+
+        guard totalWeight > 0 else { return }
+        initialAffectedCellCount = candidates.count
+
+        var totalDepositedEnergy = 0.0
+        var peakEnergy = 0.0
+        var weightedRadius = 0.0
+
+        for candidate in candidates {
+            let share = collisionKineticEnergyJ * candidate.weight / totalWeight
+            let potentialEnergy = share * QRTLConstants.collisionKineticFractionToPotential
+            let kineticEnergy = share - potentialEnergy
+
+            let physicalDisplacement = sqrt(
+                max(0.0, 2.0 * potentialEnergy / QRTLConstants.effectiveStiffnessNPerM)
+            )
+            let physicalVelocity = sqrt(
+                max(0.0, 2.0 * kineticEnergy / QRTLConstants.effectiveMassKg)
+            )
+
+            let latticeDisplacement = physicalDisplacement / QRTLConstants.latticeCellSpacingMeters
+            let latticeVelocity = physicalVelocity / QRTLConstants.latticeCellSpacingMeters
+            let index = candidate.index
+
+            cells[index].modeDirection = candidate.direction
+            cells[index].displacement = candidate.direction * Float(latticeDisplacement)
+            cells[index].velocity = candidate.direction * Float(latticeVelocity)
+            cells[index].modeCoordinate = latticeDisplacement
+            cells[index].modeVelocity = latticeVelocity
+            cells[index].modeAcceleration = 0
+            cells[index].amplitude = latticeDisplacement
+            cells[index].localStrain = min(1.0, latticeDisplacement)
+            cells[index].couplingState = min(1.0, candidate.weight)
+            cells[index].localEnergy = share
+
+            let omega = sqrt(
+                QRTLConstants.effectiveStiffnessNPerM /
+                QRTLConstants.effectiveMassKg
+            )
+            cells[index].phase = atan2(
+                physicalVelocity,
+                max(omega * physicalDisplacement, 1.0e-300)
+            )
+            cells[index].previousPhase = cells[index].phase
+            cells[index].unwrappedPhase = cells[index].phase
+
+            totalDepositedEnergy += share
+            peakEnergy = max(peakEnergy, share)
+            weightedRadius += distanceForCell(cells[index]) * share
+        }
+
+        depositedEnergyJ = totalDepositedEnergy
+        depositedEnergyGeV = totalDepositedEnergy / QRTLConstants.joulePerGeV
+        depositedEnergyTeV = depositedEnergyGeV / 1_000.0
+        peakCellEnergyGeV = peakEnergy / QRTLConstants.joulePerGeV
+        peakEnergyFraction = totalDepositedEnergy > 0 ? peakEnergy / totalDepositedEnergy : 0
+        energyRadius = totalDepositedEnergy > 0 ? weightedRadius / totalDepositedEnergy : 0
+
+        latticeEnergy = totalMechanicalLatticeEnergy()
+        currentLatticeEnergyJ = latticeEnergy
+        currentLatticeEnergyGeV = latticeEnergy / QRTLConstants.joulePerGeV
+        currentLatticeEnergyTeV = currentLatticeEnergyGeV / 1_000.0
+        dissipatedEnergyJ = max(0.0, depositedEnergyJ - latticeEnergy)
+        dissipatedEnergyGeV = dissipatedEnergyJ / QRTLConstants.joulePerGeV
+        dissipatedEnergyTeV = dissipatedEnergyGeV / 1_000.0
+        updateEnergyBalance()
+        latticeExcited = totalDepositedEnergy > 0
+
+        print("""
+        ====================================================
+        INITIAL LATTICE EXCITATION
+        ====================================================
+        Active cells:
+          \(initialAffectedCellCount)
+        Deposited energy:
+          \(String(format: "%.6e", depositedEnergyJ)) J
+        Peak cell energy:
+          \(String(format: "%.6e", peakEnergy)) J
+        Peak / total:
+          \(String(format: "%.6f", peakEnergyFraction))
+        Energy radius:
+          \(String(format: "%.4f", energyRadius))
+        ====================================================
+        """)
+    }
+
+    private func distanceForCell(_ cell: QRTLCell) -> Double {
+        Double(simd_length(cell.position))
+    }
+
+    private func physicalEnergy(
+        displacement: SIMD3<Float>,
+        velocity: SIMD3<Float>
+    ) -> Double {
+        let spacing = QRTLConstants.latticeCellSpacingMeters
+        let x = Double(simd_length(displacement)) * spacing
+        let v = Double(simd_length(velocity)) * spacing
+        let potential = 0.5 * QRTLConstants.effectiveStiffnessNPerM * x * x
+        let kinetic = 0.5 * QRTLConstants.effectiveMassKg * v * v
+        return max(0.0, potential + kinetic)
+    }
+
+    private func totalMechanicalLatticeEnergy() -> Double {
+        cells.reduce(0.0) { total, cell in
+            total + physicalEnergy(displacement: cell.displacement, velocity: cell.velocity)
+        }
+    }
+
+    private func updateEnergyBalance() {
+        currentLatticeEnergyJ = latticeEnergy
+        currentLatticeEnergyGeV = latticeEnergy / QRTLConstants.joulePerGeV
+        currentLatticeEnergyTeV = currentLatticeEnergyGeV / 1_000.0
+        let accounted = currentLatticeEnergyJ + dissipatedEnergyJ
+        energyBalanceErrorJ = collisionKineticEnergyJ - accounted
+        energyBalanceErrorGeV = energyBalanceErrorJ / QRTLConstants.joulePerGeV
+    }
+
+    // MARK: Shell Dynamics
+
+    // ========================================================
+
+    private func updateShellState(
 
         dt: Double
 
     ) {
 
-        guard !cells.isEmpty else {
+        if !energyState.isUnstable {
 
             return
 
         }
 
-        var nextCells = cells
+        // Shell instability begins high and relaxes as energy
 
-        var calculatedLatticeEnergy = 0.0
+        // is transferred into collective lattice motion.
 
-        var strainSum = 0.0
+        let transferRate =
+            QRTLConstants.shellRelaxationRatePerSecond * dt
 
-        var twistSum = 0.0
+        energyState.shellInstability =
+            max(0.0, energyState.shellInstability - transferRate)
 
-        var amplitudeSum = 0.0
+        energyState.deformation =
 
-        var coherentSum = 0.0
+            energyState.shellInstability
 
+        energyState.shellEnergy =
 
-        for index in cells.indices {
+            formationThresholdEnergy *
 
-            let cell =
+            (
 
-                cells[index]
+                0.25 +
 
-    
-            var neighborDisplacement =
+                0.75 *
 
-                SIMD3<Float>(
-
-                    0,
-
-                    0,
-
-                    0
-
-                )
-
-            var neighborMode =
-
-                0.0
-
-            var neighborPhase =
-
-                0.0
-
-            var neighborTwist =
-
-                0.0
-
-            var neighborStrain =
-
-                0.0
-
-            if !cell.neighbors.isEmpty {
-
-                for neighborIndex in
-
-                    cell.neighbors {
-
-                    let neighbor =
-
-                        cells[neighborIndex]
-
-                    neighborDisplacement +=
-
-                        neighbor.displacement
-
-                    neighborMode +=
-
-                        neighbor.modeCoordinate
-
-                    neighborPhase +=
-
-                        neighbor.phase
-
-                    neighborTwist +=
-
-                        neighbor.twist
-
-                    neighborStrain +=
-
-                        neighbor.localStrain
-
-                }
-
-                let count =
-
-                    Double(
-
-                        cell.neighbors.count
-
-                    )
-
-                neighborDisplacement /=
-
-                    Float(count)
-
-                neighborMode /=
-
-                    count
-
-                neighborPhase /=
-
-                    count
-
-                neighborTwist /=
-
-                    count
-
-                neighborStrain /=
-
-                    count
-
-            }
-
-            // ------------------------------------------------
-
-            // QRTL displacement restoring term
-
-            // ------------------------------------------------
-
-            let displacementRestoring =
-
-                -Float(QRTLConstants.restoringForce) *
-
-                cell.displacement
-
-            // ------------------------------------------------
-
-            // Neighbor coupling
-
-            // ------------------------------------------------
-
-            let displacementCoupling =
-
-                Float(
-
-                    QRTLConstants.coupling
-
-                ) *
-
-                (
-
-                    neighborDisplacement -
-
-                    cell.displacement
-
-                )
-
-            // ------------------------------------------------
-
-            // Strain
-
-            // ------------------------------------------------
-
-            let strain =
-
-                Double(
-
-                    simd_length(
-
-                        cell.displacement
-
-                    )
-
-                )
-
-            // ------------------------------------------------
-
-            // Twist coupling
-
-            // ------------------------------------------------
-
-            let twistDelta =
-
-                neighborTwist -
-
-                cell.twist
-
-            let twistAcceleration =
-
-                QRTLConstants.twistCoupling *
-
-                twistDelta -
-
-                QRTLConstants.twistRestoring *
-
-                cell.twist
-
-            // ------------------------------------------------
-
-            // Phase coupling
-
-            // ------------------------------------------------
-
-            let phaseDelta =
-
-                wrapPhase(
-
-                    neighborPhase -
-
-                    cell.phase
-
-                )
-
-            let phaseAcceleration =
-
-                QRTLConstants.phaseCoupling *
-
-                phaseDelta -
-
-                QRTLConstants.phaseRestoring *
-
-                cell.phase
-
-            // ------------------------------------------------
-
-            // Strain coupling
-
-            // ------------------------------------------------
-
-            let strainCoupling =
-
-                QRTLConstants.strainCoupling *
-
-                (
-
-                    neighborStrain -
-
-                    strain
-
-                )
-
-            // ------------------------------------------------
-
-            // Physical displacement acceleration
-
-            // ------------------------------------------------
-
-            let displacementAcceleration =
-
-                displacementRestoring +
-
-                displacementCoupling
-
-            var newVelocity =
-
-                cell.velocity +
-
-                displacementAcceleration *
-
-                Float(dt)
-
-            // Damping
-
-            newVelocity *=
-
-                Float(
-
-                    max(
-
-                        0,
-
-                        1.0 -
-
-                        QRTLConstants.damping *
-
-                        dt
-
-                    )
-
-                )
-
-            var newDisplacement =
-
-                cell.displacement +
-
-                newVelocity *
-
-                Float(dt)
-
-            // ------------------------------------------------
-
-            // Genuine scalar oscillator
-
-            // ------------------------------------------------
-
-            //
-
-            // This oscillator is coupled to the same QRTL
-
-            // restoring/coupling structure rather than being
-
-            // given an externally prescribed phase.
-
-            // ------------------------------------------------
-
-            let oscillatorRestoring =
-
-                -QRTLConstants.restoringForce *
-
-                cell.modeCoordinate
-
-            let oscillatorCoupling =
-
-                QRTLConstants.coupling *
-
-                (
-
-                    neighborMode -
-
-                    cell.modeCoordinate
-
-                )
-
-            let oscillatorStrainCoupling =
-
-                strainCoupling
-
-            let oscillatorAcceleration =
-
-                oscillatorRestoring +
-
-                oscillatorCoupling +
-
-                oscillatorStrainCoupling
-
-            var newModeVelocity =
-
-                cell.modeVelocity +
-
-                oscillatorAcceleration *
-
-                dt
-
-            newModeVelocity *=
-
-                max(
-
-                    0,
-
-                    1.0 -
-
-                    QRTLConstants.damping *
-
-                    dt
-
-                )
-
-            var newModeCoordinate =
-
-                cell.modeCoordinate +
-
-                newModeVelocity *
-
-                dt
-
-            // ------------------------------------------------
-
-            // Prevent numerical runaway while preserving the
-
-            // oscillatory state.
-
-            // ------------------------------------------------
-
-            if !newModeCoordinate.isFinite {
-
-                newModeCoordinate = 0
-
-            }
-
-            if !newModeVelocity.isFinite {
-
-                newModeVelocity = 0
-
-            }
-
-            if !newDisplacement.x.isFinite ||
-
-                !newDisplacement.y.isFinite ||
-
-                !newDisplacement.z.isFinite {
-
-                newDisplacement =
-
-                    SIMD3<Float>(
-
-                        0,
-
-                        0,
-
-                        0
-
-                    )
-
-                newVelocity =
-
-                    SIMD3<Float>(
-
-                        0,
-
-                        0,
-
-                        0
-
-                    )
-
-            }
-
-            // ------------------------------------------------
-
-            // Twist dynamics
-
-            // ------------------------------------------------
-
-            var newTwist =
-
-                cell.twist +
-
-                twistAcceleration *
-
-                dt
-
-            newTwist *=
-
-                max(
-
-                    0,
-
-                    1.0 -
-
-                    QRTLConstants.damping *
-
-                    dt
-
-                )
-
-            // ------------------------------------------------
-
-            // Phase dynamics
-
-            //
-
-            // IMPORTANT:
-
-            //
-
-            // Phase is no longer initialized from collision
-
-            // energy. It is derived from the actual oscillator
-
-            // state.
-
-            // ------------------------------------------------
-
-            let oscillatorMagnitude =
-
-                sqrt(
-
-                    max(
-
-                        0,
-
-                        QRTLConstants.restoringForce
-
-                    )
-
-                )
-
-            let phase =
-
-                atan2(
-
-                    newModeVelocity,
-
-                    oscillatorMagnitude *
-
-                    newModeCoordinate
-
-                )
-
-            let oldPhase =
-
-                cell.phase
-
-            let phaseChange =
-
-                wrapPhase(
-
-                    phase -
-
-                    oldPhase
-
-                )
-
-            var newUnwrappedPhase =
-
-                cell.unwrappedPhase +
-
-                phaseChange
-
-            if !newUnwrappedPhase.isFinite {
-
-                newUnwrappedPhase = 0
-
-            }
-
-            // ------------------------------------------------
-
-            // Amplitude
-
-            // ------------------------------------------------
-
-            let newAmplitude =
-
-                sqrt(
-
-                    newModeCoordinate *
-
-                    newModeCoordinate +
-
-                    (
-
-                        newModeVelocity /
-
-                        max(
-
-                            oscillatorMagnitude,
-
-                            0.000001
-
-                        )
-
-                    ) *
-
-                    (
-
-                        newModeVelocity /
-
-                        max(
-
-                            oscillatorMagnitude,
-
-                            0.000001
-
-                        )
-
-                    )
-
-                )
-
-            // ------------------------------------------------
-
-            // Local oscillator energy
-
-            // ------------------------------------------------
-
-            let oscillatorEnergy =
-
-                0.5 *
-
-                (
-
-                    newModeVelocity *
-
-                    newModeVelocity
-
-                ) +
-
-                0.5 *
-
-                QRTLConstants.restoringForce *
-
-                (
-
-                    newModeCoordinate *
-
-                    newModeCoordinate
-
-                )
-
-            let displacementEnergy =
-
-                0.5 *
-
-                Double(
-
-                    simd_length_squared(
-
-                        newVelocity
-
-                    )
-
-                ) +
-
-                0.5 *
-
-                QRTLConstants.restoringForce *
-
-                Double(
-
-                    simd_length_squared(
-
-                        newDisplacement
-
-                    )
-
-                )
-
-            let totalCellEnergy =
-
-                max(
-
-                    0,
-
-                    oscillatorEnergy +
-
-                    displacementEnergy
-
-                )
-
-            // ------------------------------------------------
-
-            // Coupling state
-
-            // ------------------------------------------------
-
-            let couplingState =
-
-                min(
-
-                    1.0,
-
-                    max(
-
-                        0,
-
-                        cell.couplingState +
-
-                        (
-
-                            QRTLConstants.coupling *
-
-                            abs(
-
-                                neighborMode -
-
-                                cell.modeCoordinate
-
-                            )
-
-                        ) *
-
-                        dt
-
-                    )
-
-                )
-
-            // ------------------------------------------------
-
-            // Write new cell
-
-            // ------------------------------------------------
-
-            nextCells[index].displacement =
-
-                newDisplacement
-
-            nextCells[index].velocity =
-
-                newVelocity
-
-            nextCells[index].modeCoordinate =
-
-                newModeCoordinate
-
-            nextCells[index].modeVelocity =
-
-                newModeVelocity
-
-            nextCells[index].modeAcceleration =
-
-                oscillatorAcceleration
-
-            nextCells[index].twist =
-
-                newTwist
-
-            nextCells[index].previousPhase =
-
-                oldPhase
-
-            nextCells[index].phase =
-
-                phase
-
-            nextCells[index].unwrappedPhase =
-
-                newUnwrappedPhase
-
-            nextCells[index].amplitude =
-
-                newAmplitude
-
-            nextCells[index].localStrain =
-
-                strain
-
-            nextCells[index].localEnergy =
-
-                totalCellEnergy
-
-            nextCells[index].couplingState =
-
-                couplingState
-
-            calculatedLatticeEnergy +=
-
-                totalCellEnergy
-
-            strainSum +=
-
-                strain
-
-            twistSum +=
-
-                abs(newTwist)
-
-            amplitudeSum +=
-
-                newAmplitude
-
-            coherentSum +=
-
-                cos(
-
-                    phase -
-
-                    phase
-
-                )
-
-        }
-
-        cells = nextCells
-
-        latticeEnergy =
-
-            calculatedLatticeEnergy
-
-        let count =
-
-            Double(
-
-                max(
-
-                    cells.count,
-
-                    1
-
-                )
+                energyState.shellInstability
 
             )
 
-        averageStrain =
+        if energyState.shellInstability < 0.05 {
 
-            strainSum / count
+            energyState.isUnstable = false
 
-        averageTwist =
+        }
 
-            twistSum / count
+        let visualScale =
 
-        collectiveAmplitude =
+            Float(
 
-            amplitudeSum / count
+                1.0 +
 
-        // ----------------------------------------------------
+                energyState.shellInstability *
 
-        // Determine coherence from actual phase relationships.
+                0.9
 
-        // ----------------------------------------------------
+            )
 
-        calculateCollectiveCoherence()
+        protonAShellNode.scale =
 
-        latticeExcited =
+            SCNVector3(
 
-            latticeEnergy > 0.000001
+                visualScale,
+
+                visualScale,
+
+                visualScale
+
+            )
+
+        protonBShellNode.scale =
+
+            SCNVector3(
+
+                visualScale,
+
+                visualScale,
+
+                visualScale
+
+            )
 
     }
 
     // ========================================================
+
+    // MARK: Lattice Dynamics
+
+    // ========================================================
+
+    private func updateLattice(
+        dt: Double
+    ) {
+        guard !cells.isEmpty else {
+            return
+        }
+
+        let previousEnergy = totalMechanicalLatticeEnergy()
+
+        var nextCells = cells
+
+        // --------------------------------------------------------
+        // QRTL mechanical constants
+        // --------------------------------------------------------
+
+        let stiffness =
+            QRTLConstants.effectiveStiffnessNPerM
+
+        let mass =
+            QRTLConstants.effectiveMassKg
+
+        let stiffnessOverMass =
+            stiffness / mass
+
+        let coupling =
+            QRTLConstants.coupling
+
+        let couplingAcceleration =
+            coupling * stiffnessOverMass
+
+        let dampingRate =
+            QRTLConstants.dampingRatePerSecond
+
+        let dampingFactor =
+            exp(-dampingRate * dt)
+
+        let omega =
+            sqrt(max(stiffnessOverMass, 0.0))
+
+        // --------------------------------------------------------
+        // Synchronous CA update
+        //
+        // Every calculation reads from `cells`.
+        // Every result is written to `nextCells`.
+        // --------------------------------------------------------
+
+        for index in cells.indices {
+
+            let cell =
+                cells[index]
+
+            // ----------------------------------------------------
+            // Neighbor averages
+            // ----------------------------------------------------
+
+            var neighborDisplacement =
+                SIMD3<Float>(0, 0, 0)
+
+            var neighborTwist =
+                0.0
+
+            var neighborStrain =
+                0.0
+
+            for neighborIndex in cell.neighbors {
+
+                let neighbor =
+                    cells[neighborIndex]
+
+                neighborDisplacement +=
+                    neighbor.displacement
+
+                neighborTwist +=
+                    neighbor.twist
+
+                neighborStrain +=
+                    neighbor.localStrain
+            }
+
+            if !cell.neighbors.isEmpty {
+
+                let neighborCount =
+                    Double(cell.neighbors.count)
+
+                let neighborCountFloat =
+                    Float(neighborCount)
+
+                neighborDisplacement /=
+                    neighborCountFloat
+
+                neighborTwist /=
+                    neighborCount
+
+                neighborStrain /=
+                    neighborCount
+            }
+
+            // ----------------------------------------------------
+            // Mechanical restoring force
+            //
+            // F = -kx
+            // a = F/m = -(k/m)x
+            // ----------------------------------------------------
+
+            let restoring =
+                -Float(stiffnessOverMass) *
+                cell.displacement
+
+            // ----------------------------------------------------
+            // Neighbor coupling
+            // ----------------------------------------------------
+
+            let displacementDifference =
+                neighborDisplacement -
+                cell.displacement
+
+            let neighborForce =
+                Float(couplingAcceleration) *
+                displacementDifference
+
+            let acceleration =
+                restoring +
+                neighborForce
+
+            // ----------------------------------------------------
+            // Velocity
+            // ----------------------------------------------------
+
+            var newVelocity =
+                cell.velocity +
+                acceleration * Float(dt)
+
+            newVelocity *=
+                Float(dampingFactor)
+
+            // ----------------------------------------------------
+            // Displacement
+            // ----------------------------------------------------
+
+            var newDisplacement =
+                cell.displacement +
+                newVelocity * Float(dt)
+
+            // ----------------------------------------------------
+            // Numerical protection
+            // ----------------------------------------------------
+
+            let displacementFinite =
+                newDisplacement.x.isFinite &&
+                newDisplacement.y.isFinite &&
+                newDisplacement.z.isFinite
+
+            let velocityFinite =
+                newVelocity.x.isFinite &&
+                newVelocity.y.isFinite &&
+                newVelocity.z.isFinite
+
+            if !displacementFinite ||
+                !velocityFinite {
+
+                newDisplacement =
+                    SIMD3<Float>(0, 0, 0)
+
+                newVelocity =
+                    SIMD3<Float>(0, 0, 0)
+            }
+
+            // ----------------------------------------------------
+            // Twist dynamics
+            // ----------------------------------------------------
+
+            let twistDifference =
+                neighborTwist -
+                cell.twist
+
+            let twistCoupling =
+                QRTLConstants.twistCoupling *
+                twistDifference
+
+            let twistRestoring =
+                QRTLConstants.twistRestoring *
+                cell.twist
+
+            let twistAcceleration =
+                twistCoupling -
+                twistRestoring
+
+            var newTwist =
+                cell.twist +
+                twistAcceleration * dt
+
+            newTwist *=
+                dampingFactor
+
+            // ----------------------------------------------------
+            // Collective mode direction
+            // ----------------------------------------------------
+
+            let modeDirectionLength =
+                simd_length(cell.modeDirection)
+
+            let direction: SIMD3<Float>
+
+            if modeDirectionLength > 0.0001 {
+
+                direction =
+                    cell.modeDirection
+
+            } else {
+
+                direction =
+                    SIMD3<Float>(1, 0, 0)
+            }
+
+            // ----------------------------------------------------
+            // Mode coordinate
+            // ----------------------------------------------------
+
+            let modeCoordinateFloat =
+                simd_dot(
+                    newDisplacement,
+                    direction
+                )
+
+            let modeVelocityFloat =
+                simd_dot(
+                    newVelocity,
+                    direction
+                )
+
+            let modeCoordinate =
+                Double(modeCoordinateFloat)
+
+            let modeVelocity =
+                Double(modeVelocityFloat)
+
+            // ----------------------------------------------------
+            // Physical displacement
+            // ----------------------------------------------------
+
+            let cellSpacing =
+                QRTLConstants.latticeCellSpacingMeters
+
+            let xMeters =
+                abs(modeCoordinate) *
+                cellSpacing
+
+            let vMetersPerSecond =
+                abs(modeVelocity) *
+                cellSpacing
+
+            // ----------------------------------------------------
+            // Phase
+            // ----------------------------------------------------
+
+            let omegaSafe =
+                max(omega, 1.0e-300)
+
+            let phaseDenominator =
+                max(
+                    omegaSafe * xMeters,
+                    1.0e-300
+                )
+
+            let phaseMagnitude =
+                atan2(
+                    vMetersPerSecond,
+                    phaseDenominator
+                )
+
+            let phaseSign =
+                modeVelocity >= 0.0
+                    ? 1.0
+                    : -1.0
+
+            let phase =
+                phaseMagnitude * phaseSign
+
+            let phaseDifference =
+                phase -
+                cell.phase
+
+            let phaseChange =
+                wrapPhase(phaseDifference)
+
+            let newUnwrappedPhase =
+                cell.unwrappedPhase +
+                phaseChange
+
+            // ----------------------------------------------------
+            // Amplitude
+            //
+            // Dimensionless lattice-mode amplitude.
+            // It is NOT treated as energy.
+            // ----------------------------------------------------
+
+            let normalizedVelocity =
+                modeVelocity /
+                omegaSafe
+
+            let coordinateSquared =
+                modeCoordinate *
+                modeCoordinate
+
+            let velocitySquared =
+                normalizedVelocity *
+                normalizedVelocity
+
+            let amplitudeSquared =
+                coordinateSquared +
+                velocitySquared
+
+            let amplitude =
+                sqrt(
+                    max(
+                        amplitudeSquared,
+                        0.0
+                    )
+                )
+
+            // ----------------------------------------------------
+            // Strain
+            // ----------------------------------------------------
+
+            let displacementMagnitude =
+                Double(
+                    simd_length(
+                        newDisplacement
+                    )
+                )
+
+            let baseStrain =
+                min(
+                    1.0,
+                    displacementMagnitude
+                )
+
+            let strainDifference =
+                abs(
+                    neighborStrain -
+                    baseStrain
+                )
+
+            let propagatedStrain =
+                strainDifference *
+                QRTLConstants.strainCoupling
+
+            let newStrain =
+                min(
+                    1.0,
+                    baseStrain +
+                    propagatedStrain
+                )
+
+            // ----------------------------------------------------
+            // Physical cell energy
+            //
+            // U = 1/2 kx²
+            // K = 1/2 mv²
+            // E = U + K
+            // ----------------------------------------------------
+
+            let energy =
+                physicalEnergy(
+                    displacement: newDisplacement,
+                    velocity: newVelocity
+                )
+
+            // ----------------------------------------------------
+            // Coupling state
+            // ----------------------------------------------------
+
+            let displacementDifferenceX =
+                abs(
+                    Double(
+                        neighborDisplacement.x -
+                        cell.displacement.x
+                    )
+                )
+
+            let couplingIncrease =
+                coupling *
+                displacementDifferenceX *
+                dt
+
+            let updatedCouplingState =
+                cell.couplingState +
+                couplingIncrease
+
+            let newCouplingState =
+                min(
+                    1.0,
+                    max(
+                        0.0,
+                        updatedCouplingState
+                    )
+                )
+
+            // ----------------------------------------------------
+            // Write next state
+            // ----------------------------------------------------
+
+            nextCells[index].displacement =
+                newDisplacement
+
+            nextCells[index].velocity =
+                newVelocity
+
+            nextCells[index].modeCoordinate =
+                modeCoordinate
+
+            nextCells[index].modeVelocity =
+                modeVelocity
+
+            nextCells[index].modeAcceleration =
+                Double(
+                    simd_length(acceleration)
+                )
+
+            nextCells[index].twist =
+                newTwist
+
+            nextCells[index].previousPhase =
+                cell.phase
+
+            nextCells[index].phase =
+                phase
+
+            nextCells[index].unwrappedPhase =
+                newUnwrappedPhase
+
+            nextCells[index].amplitude =
+                amplitude
+
+            nextCells[index].localStrain =
+                newStrain
+
+            nextCells[index].couplingState =
+                newCouplingState
+
+            nextCells[index].localEnergy =
+                energy
+        }
+
+        // --------------------------------------------------------
+        // Commit synchronous CA state
+        // --------------------------------------------------------
+
+        cells =
+            nextCells
+
+        // --------------------------------------------------------
+        // Physical lattice energy
+        // --------------------------------------------------------
+
+        latticeEnergy =
+            totalMechanicalLatticeEnergy()
+
+        // --------------------------------------------------------
+        // Energy accounting
+        // --------------------------------------------------------
+
+        dissipatedEnergyJ =
+            max(
+                0.0,
+                depositedEnergyJ -
+                latticeEnergy
+            )
+
+        dissipatedEnergyGeV =
+            dissipatedEnergyJ /
+            QRTLConstants.joulePerGeV
+
+        dissipatedEnergyTeV =
+            dissipatedEnergyGeV /
+            1_000.0
+
+        updateEnergyBalance()
+
+        // --------------------------------------------------------
+        // Spatial response statistics
+        // --------------------------------------------------------
+
+        let cellCount =
+            Double(
+                max(
+                    cells.count,
+                    1
+                )
+            )
+
+        var strainTotal =
+            0.0
+
+        var twistTotal =
+            0.0
+
+        for cell in cells {
+
+            strainTotal +=
+                cell.localStrain
+
+            twistTotal +=
+                abs(cell.twist)
+        }
+
+        averageStrain =
+            strainTotal /
+            cellCount
+
+        averageTwist =
+            twistTotal /
+            cellCount
+
+        // --------------------------------------------------------
+        // Collective amplitude
+        //
+        // IMPORTANT:
+        // This uses the entire lattice.
+        //
+        // It is weighted by physical cell energy,
+        // but amplitude itself is NOT energy.
+        // --------------------------------------------------------
+
+        var amplitudeEnergySum =
+            0.0
+
+        var amplitudeWeight =
+            0.0
+
+        for cell in cells {
+
+            let cellEnergy =
+                max(
+                    cell.localEnergy,
+                    0.0
+                )
+
+            let cellAmplitude =
+                cell.amplitude
+
+            let amplitudeSquared =
+                cellAmplitude *
+                cellAmplitude
+
+            amplitudeEnergySum +=
+                cellEnergy *
+                amplitudeSquared
+
+            amplitudeWeight +=
+                cellEnergy
+        }
+
+        if amplitudeWeight > 0.0 {
+
+            let weightedAmplitudeSquared =
+                amplitudeEnergySum /
+                amplitudeWeight
+
+            collectiveAmplitude =
+                sqrt(
+                    max(
+                        weightedAmplitudeSquared,
+                        0.0
+                    )
+                )
+
+        } else {
+
+            collectiveAmplitude =
+                0.0
+        }
+
+        peakCollectiveAmplitude =
+            max(
+                peakCollectiveAmplitude,
+                collectiveAmplitude
+            )
+
+        // --------------------------------------------------------
+        // Coherence is independent of amplitude
+        // --------------------------------------------------------
+
+        calculateCollectiveCoherence()
+
+        // --------------------------------------------------------
+        // Active lattice state
+        // --------------------------------------------------------
+
+        latticeExcited =
+            latticeEnergy >
+            QRTLConstants.activeEnergyThresholdJ
+
+        // --------------------------------------------------------
+        // Time-dependent response
+        // --------------------------------------------------------
+
+        propagationTime =
+            max(
+                0.0,
+                simulationTime -
+                collisionTime
+            )
+
+        let spectralCount =
+            Double(
+                max(
+                    spectralSampleCount,
+                    0
+                )
+            )
+
+        let requiredSamples =
+            Double(
+                max(
+                    QRTLConstants.spectralSampleCount,
+                    1
+                )
+            )
+
+        resonanceDevelopment =
+            min(
+                1.0,
+                spectralCount /
+                requiredSamples
+            )
+
+        dampingFraction =
+            depositedEnergyJ > 0.0
+                ? min(
+                    1.0,
+                    dissipatedEnergyJ /
+                    depositedEnergyJ
+                )
+                : 0.0
+
+        returnedToEquilibrium =
+            latticeEnergy <=
+            QRTLConstants.activeEnergyThresholdJ &&
+            propagationTime > 0.0
+
+        // --------------------------------------------------------
+        // Retain previous energy as a diagnostic reference.
+        // --------------------------------------------------------
+
+        _ =
+            previousEnergy
+    }
 
     // MARK: Collective Coherence
 
     // ========================================================
 
     private func calculateCollectiveCoherence() {
-
         guard !cells.isEmpty else {
-
             collectiveCoherence = 0
-
+            resonantModeEnergyJ = 0
+            resonantModeEnergyGeV = 0
+            resonantModeEnergyTeV = 0
+            resonantModeEnergy = 0
             return
-
         }
 
         var real = 0.0
-
         var imaginary = 0.0
-
         var totalWeight = 0.0
 
         for cell in cells {
-
-            let weight =
-
-                cell.localEnergy +
-
-                cell.amplitude *
-
-                cell.amplitude
-
-            guard weight > 0.000001 else {
-
-                continue
-
-            }
-
-            real +=
-
-                weight *
-
-                cos(cell.phase)
-
-            imaginary +=
-
-                weight *
-
-                sin(cell.phase)
-
-            totalWeight +=
-
-                weight
-
+            let weight = max(cell.localEnergy, 0.0)
+            guard weight > QRTLConstants.activeEnergyThresholdJ else { continue }
+            real += weight * cos(cell.phase)
+            imaginary += weight * sin(cell.phase)
+            totalWeight += weight
         }
 
         guard totalWeight > 0 else {
-
             collectiveCoherence = 0
-
+            resonantModeEnergyJ = 0
+            resonantModeEnergyGeV = 0
+            resonantModeEnergyTeV = 0
+            resonantModeEnergy = 0
             return
-
         }
 
-        collectiveCoherence =
+        collectiveCoherence = min(
+            1.0,
+            sqrt(real * real + imaginary * imaginary) / totalWeight
+        )
 
-            min(
-
-                1.0,
-
-                sqrt(
-
-                    real * real +
-
-                    imaginary * imaginary
-
-                ) /
-
-                totalWeight
-
-            )
-
+        // Resonant-mode energy is a partition of existing lattice
+        // mechanical energy. It never adds energy to the system.
+        resonantModeEnergyJ =
+            latticeEnergy * collectiveCoherence * collectiveCoherence
+        resonantModeEnergyGeV =
+            resonantModeEnergyJ / QRTLConstants.joulePerGeV
+        resonantModeEnergyTeV = resonantModeEnergyGeV / 1_000.0
+        resonantModeEnergy = resonantModeEnergyJ
     }
 
-    // ========================================================
-
-    // ========================================================
     // MARK: Record Collective Lattice Signal
     // ========================================================
 
@@ -2589,7 +2437,7 @@ final class QRTLSimulation: ObservableObject {
 
                 cell.amplitude
 
-            guard weight > 0.000001 else {
+            guard weight > QRTLConstants.activeEnergyThresholdJ else {
 
                 continue
 
@@ -2818,357 +2666,70 @@ final class QRTLSimulation: ObservableObject {
     // ========================================================
 
     private func updateHiggsLikeMode(
-
         dt: Double
-
     ) {
-
         higgsMode.age += dt
-
-        // ----------------------------------------------------
-
-        // Resonant mode energy is the energy associated with
-
-        // the coherent, oscillating portion of the lattice.
-
-        // ----------------------------------------------------
-
-        var weightedEnergy = 0.0
-
-        var totalEnergyWeight = 0.0
+        calculateCollectiveCoherence()
 
         var weightedAmplitude = 0.0
-
         var phaseReal = 0.0
-
         var phaseImaginary = 0.0
-
         var phaseWeight = 0.0
 
         for cell in cells {
-
-            let oscillationEnergy =
-
-                0.5 *
-
-                cell.modeVelocity *
-
-                cell.modeVelocity +
-
-                0.5 *
-
-                QRTLConstants.restoringForce *
-
-                cell.modeCoordinate *
-
-                cell.modeCoordinate
-
-            guard oscillationEnergy > 0 else {
-
-                continue
-
-            }
-
-            let weight =
-
-                oscillationEnergy
-
-            weightedEnergy +=
-
-                oscillationEnergy
-
-            totalEnergyWeight +=
-
-                weight
-
-            weightedAmplitude +=
-
-                abs(
-
-                    cell.modeCoordinate
-
-                ) *
-
-                weight
-
-            phaseReal +=
-
-                weight *
-
-                cos(cell.phase)
-
-            phaseImaginary +=
-
-                weight *
-
-                sin(cell.phase)
-
-            phaseWeight +=
-
-                weight
-
+            let weight = max(cell.localEnergy, 0.0)
+            guard weight > QRTLConstants.activeEnergyThresholdJ else { continue }
+            weightedAmplitude += abs(cell.modeCoordinate) * weight
+            phaseReal += weight * cos(cell.phase)
+            phaseImaginary += weight * sin(cell.phase)
+            phaseWeight += weight
         }
 
-        resonantModeEnergy =
-
-            max(
-
-                0,
-
-                weightedEnergy
-
-            )
-
-        let modeAmplitude: Double
-
-        if totalEnergyWeight > 0 {
-
-            modeAmplitude =
-
-                weightedAmplitude /
-
-                totalEnergyWeight
-
-        } else {
-
-            modeAmplitude = 0
-
-        }
-
-        let modeCoherence: Double
-
-        if phaseWeight > 0 {
-
-            modeCoherence =
-
-                min(
-
-                    1.0,
-
-                    sqrt(
-
-                        phaseReal *
-
-                        phaseReal +
-
-                        phaseImaginary *
-
-                        phaseImaginary
-
-                    ) /
-
-                    phaseWeight
-
-                )
-
-        } else {
-
-            modeCoherence = 0
-
-        }
-
-        resonantMassGeV =
-
-            massFromFrequency(
-
-                resonantFrequencyHz
-
-            )
-
-        massDistanceFromTarget =
-
-            abs(
-
-                QRTLConstants.targetHiggsMassGeV -
-
-                resonantMassGeV
-
-            )
-
-        higgsMode.frequencyHz =
-
-            resonantFrequencyHz
-
-        higgsMode.massGeV =
-
-            resonantMassGeV
-
-        higgsMode.energy =
-
-            resonantModeEnergy
-
-        higgsMode.amplitude =
-
-            modeAmplitude
-
-        higgsMode.coherence =
-
-            modeCoherence
-
-        higgsMode.shellEnergy =
-
-            energyState.shellEnergy
-
-        higgsMode.shellInstability =
-
-            energyState.shellInstability
-
-        // ----------------------------------------------------
-
-        // Candidate activation is based on simulated behavior,
-
-        // not on simply assigning 125 GeV.
-
-        // ----------------------------------------------------
-
-        let sufficientEnergy =
-
-            resonantModeEnergy >
-
-            0.000001
-
-        let sufficientCoherence =
-
-            modeCoherence >
-
-            0.50
-
-        let measuredFrequency =
-
-            resonantFrequencyHz >
-
-            0
-
-        let shellWasDestabilized =
-
-            formationThresholdEnergy >
-
-            energyState.equilibriumShellEnergy
+        let modeAmplitude = phaseWeight > 0
+            ? weightedAmplitude / phaseWeight
+            : 0
+        let modeCoherence = phaseWeight > 0
+            ? min(1.0, sqrt(phaseReal * phaseReal + phaseImaginary * phaseImaginary) / phaseWeight)
+            : 0
+
+        resonantMassGeV = massFromFrequency(resonantFrequencyHz)
+        massDistanceFromTarget = abs(QRTLConstants.targetHiggsMassGeV - resonantMassGeV)
+        higgsMode.frequencyHz = resonantFrequencyHz
+        higgsMode.massGeV = resonantMassGeV
+        higgsMode.energy = resonantModeEnergyJ
+        higgsMode.amplitude = modeAmplitude
+        higgsMode.coherence = modeCoherence
+        higgsMode.shellEnergy = energyState.shellEnergy
+        higgsMode.shellInstability = energyState.shellInstability
+
+        let sufficientEnergy = resonantModeEnergyJ > QRTLConstants.activeEnergyThresholdJ
+        let sufficientCoherence = modeCoherence > 0.50
+        let measuredFrequency = resonantFrequencyHz > 0
+        let shellWasDestabilized = formationThresholdEnergy > energyState.equilibriumShellEnergy
 
         higgsMode.active =
-
             collisionOccurred &&
-
             sufficientEnergy &&
-
             sufficientCoherence &&
-
             measuredFrequency &&
-
             shellWasDestabilized
 
         if higgsMode.active {
-
             higgsNode.isHidden = false
-
-            let visualScale =
-
-                Float(
-
-                    max(
-
-                        0.05,
-
-                        min(
-
-                            2.5,
-
-                            modeAmplitude *
-
-                            8.0
-
-                        )
-
-                    )
-
-                )
-
-            higgsNode.scale =
-
-                SCNVector3(
-
-                    visualScale,
-
-                    visualScale,
-
-                    visualScale
-
-                )
-
-            let pulse =
-
-                0.85 +
-
-                0.15 *
-
-                sin(
-
-                    simulationTime *
-
-                    8.0
-
-                )
-
-            higgsNode.opacity =
-
-                CGFloat(
-
-                    max(
-
-                        0.15,
-
-                        min(
-
-                            1.0,
-
-                            modeCoherence *
-
-                            pulse
-
-                        )
-
-                    )
-
-                )
-
+            let visualScale = Float(max(0.05, min(2.5, modeAmplitude * 8.0)))
+            higgsNode.scale = SCNVector3(visualScale, visualScale, visualScale)
+            higgsNode.opacity = CGFloat(max(0.15, min(1.0, modeCoherence)))
         } else {
-
             higgsNode.isHidden = true
-
         }
 
-        // ----------------------------------------------------
-
-        // Decay / return toward equilibrium
-
-        // ----------------------------------------------------
-
-        if !energyState.isUnstable &&
-
-            higgsMode.active {
-
-            higgsMode.decayProgress =
-
-                min(
-
-                    1.0,
-
-                    higgsMode.decayProgress +
-
-                    dt * 0.15
-
-                )
-
+        if !energyState.isUnstable && higgsMode.active {
+            higgsMode.decayProgress = min(1.0, higgsMode.decayProgress + dt * 0.15)
             if higgsMode.decayProgress >= 1.0 {
-
                 higgsMode.active = false
-
                 higgsNode.isHidden = true
-
             }
-
         }
-
     }
 
     // ========================================================
@@ -3484,6 +3045,33 @@ final class QRTLSimulation: ObservableObject {
         spectralAnalysisComplete = false
         spectralAnalyzer.reset()
 
+        collisionKineticEnergyJ = 0
+        collisionKineticEnergyGeV = 0
+        collisionKineticEnergyTeV = 0
+        depositedEnergyJ = 0
+        depositedEnergyGeV = 0
+        depositedEnergyTeV = 0
+        currentLatticeEnergyJ = 0
+        currentLatticeEnergyGeV = 0
+        currentLatticeEnergyTeV = 0
+        resonantModeEnergyJ = 0
+        resonantModeEnergyGeV = 0
+        resonantModeEnergyTeV = 0
+        dissipatedEnergyJ = 0
+        dissipatedEnergyGeV = 0
+        dissipatedEnergyTeV = 0
+        energyBalanceErrorJ = 0
+        energyBalanceErrorGeV = 0
+        initialAffectedCellCount = 0
+        energyRadius = 0
+        peakCellEnergyGeV = 0
+        peakEnergyFraction = 0
+        peakCollectiveAmplitude = 0
+        propagationTime = 0
+        resonanceDevelopment = 0
+        dampingFraction = 0
+        returnedToEquilibrium = false
+
         resonantMassGeV = 0
 
         formationThresholdEnergy = 0
@@ -3597,116 +3185,3 @@ final class QRTLSimulation: ObservableObject {
     }
 
 }
-
-
-
-extension QRTLConstants {
-
-    // Physical constants
-    static let protonMassKg = 1.67262192369e-27
-
-    // Proton rest energy
-    static let protonRestEnergyGeV = 0.93827208816
-
-    // LHC Run 3 beam energy
-    // 6.8 TeV per proton
-    static let lhcProtonBeamEnergyTeV = 6.8
-
-    static let lhcProtonBeamEnergyGeV =
-        lhcProtonBeamEnergyTeV * 1_000.0
-
-    // --------------------------------------------------------
-    // Lorentz factor
-    //
-    // gamma = E / (m c²)
-    // --------------------------------------------------------
-
-    static let lhcLorentzFactor: Double = {
-
-        lhcProtonBeamEnergyGeV /
-        protonRestEnergyGeV
-    }()
-
-    // --------------------------------------------------------
-    // Proton velocity
-    //
-    // v = c sqrt(1 - 1/gamma²)
-    // --------------------------------------------------------
-
-    static let lhcProtonSpeed: Double = {
-
-        let gamma = lhcLorentzFactor
-
-        guard gamma > 1.0 else {
-            return 0.0
-        }
-
-        return speedOfLight *
-            sqrt(
-                1.0 -
-                1.0 / (gamma * gamma)
-            )
-    }()
-
-    // --------------------------------------------------------
-    // Kinetic energy of ONE proton
-    //
-    // KE = (gamma - 1) m c²
-    // --------------------------------------------------------
-
-    static let singleProtonKineticEnergyGeV: Double = {
-
-        (lhcLorentzFactor - 1.0) *
-        protonRestEnergyGeV
-    }()
-
-    // --------------------------------------------------------
-    // Kinetic energy of BOTH protons
-    // --------------------------------------------------------
-
-    static let twoProtonKineticEnergyGeV: Double = {
-
-        2.0 *
-        singleProtonKineticEnergyGeV
-    }()
-
-    // --------------------------------------------------------
-    // Total proton-proton center-of-mass energy
-    //
-    // 6.8 TeV + 6.8 TeV = 13.6 TeV
-    // --------------------------------------------------------
-
-    static let protonProtonCollisionEnergyGeV: Double = {
-
-        2.0 *
-        lhcProtonBeamEnergyGeV
-    }()
-
-    // --------------------------------------------------------
-    // GeV → joules
-    // --------------------------------------------------------
-
-    static let joulesPerGeV =
-        1.602176634e-10
-
-    // --------------------------------------------------------
-    // TWO-PROTON KINETIC ENERGY IN JOULES
-    // --------------------------------------------------------
-
-    static let twoProtonKineticEnergyJ: Double = {
-
-        twoProtonKineticEnergyGeV *
-        joulesPerGeV
-    }()
-
-    // --------------------------------------------------------
-    // TOTAL 13.6 TeV COLLISION ENERGY IN JOULES
-    // --------------------------------------------------------
-
-    static let protonProtonCollisionEnergyJ: Double = {
-
-        protonProtonCollisionEnergyGeV *
-        joulesPerGeV
-    }()
-}
-
