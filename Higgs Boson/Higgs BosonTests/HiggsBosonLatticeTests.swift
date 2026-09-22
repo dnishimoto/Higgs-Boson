@@ -130,7 +130,7 @@ final class HiggsBosonLatticeTests: XCTestCase {
             1.0,
             accuracy: 1.0e-12
         )
-
+/*
         print("""
 
         ============================================================
@@ -145,6 +145,7 @@ final class HiggsBosonLatticeTests: XCTestCase {
         125 GeV transient:  \(transientMassEnergyJ) J
         ============================================================
         """)
+ */
     }
     func testLatticeEnergyAndMassAfterImpact() {
         
