@@ -14,8 +14,8 @@
             filePath = "Higgs Boson/QRTLSimulation.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "2963"
-            endingLineNumber = "2963"
+            startingLineNumber = "3192"
+            endingLineNumber = "3192"
             landmarkName = "printCollisionEnergyState()"
             landmarkType = "7">
          </BreakpointContent>
@@ -40,60 +40,16 @@
          BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
          <BreakpointContent
             uuid = "94B6665A-30A6-44F6-96BD-006889FCD1BB"
-            shouldBeEnabled = "Yes"
+            shouldBeEnabled = "No"
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "Higgs Boson/QRTLSimulation.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "2426"
-            endingLineNumber = "2426"
+            startingLineNumber = "2655"
+            endingLineNumber = "2655"
             landmarkName = "calculateCollectiveCoherence()"
             landmarkType = "7">
-            <Locations>
-               <Location
-                  uuid = "94B6665A-30A6-44F6-96BD-006889FCD1BB - 8997845fcfd52ecf"
-                  shouldBeEnabled = "Yes"
-                  ignoreCount = "0"
-                  continueAfterRunningActions = "No"
-                  symbolName = "closure #2 (Swift.Double, Higgs_Boson.QRTLCell) -&gt; Swift.Double in Higgs_Boson.QRTLSimulation.updateLattice(dt: Swift.Double) -&gt; ()"
-                  moduleName = "Higgs Boson.debug.dylib"
-                  usesParentBreakpointCondition = "Yes"
-                  urlString = "file:///Users/davidnishimoto/Desktop/Higgs-Boson/Higgs%20Boson/Higgs%20Boson/QRTLSimulation.swift"
-                  startingColumnNumber = "9223372036854775807"
-                  endingColumnNumber = "9223372036854775807"
-                  startingLineNumber = "1542"
-                  endingLineNumber = "1542">
-               </Location>
-               <Location
-                  uuid = "94B6665A-30A6-44F6-96BD-006889FCD1BB - c9197cd5fbf007c1"
-                  shouldBeEnabled = "Yes"
-                  ignoreCount = "0"
-                  continueAfterRunningActions = "No"
-                  symbolName = "Higgs_Boson.QRTLSimulation.reset() -&gt; ()"
-                  moduleName = "Higgs Boson.debug.dylib"
-                  usesParentBreakpointCondition = "Yes"
-                  urlString = "file:///Users/davidnishimoto/Desktop/Higgs-Boson/Higgs%20Boson/Higgs%20Boson/QRTLSimulation.swift"
-                  startingColumnNumber = "9223372036854775807"
-                  endingColumnNumber = "9223372036854775807"
-                  startingLineNumber = "2420"
-                  endingLineNumber = "2420">
-               </Location>
-               <Location
-                  uuid = "94B6665A-30A6-44F6-96BD-006889FCD1BB - 9b86cd35a151a2d3"
-                  shouldBeEnabled = "Yes"
-                  ignoreCount = "0"
-                  continueAfterRunningActions = "No"
-                  symbolName = "Higgs_Boson.QRTLSimulation.calculateCollectiveCoherence() -&gt; ()"
-                  moduleName = "Higgs Boson.debug.dylib"
-                  usesParentBreakpointCondition = "Yes"
-                  urlString = "file:///Users/davidnishimoto/Desktop/Higgs-Boson/Higgs%20Boson/Higgs%20Boson/QRTLSimulation.swift"
-                  startingColumnNumber = "9223372036854775807"
-                  endingColumnNumber = "9223372036854775807"
-                  startingLineNumber = "2426"
-                  endingLineNumber = "2426">
-               </Location>
-            </Locations>
          </BreakpointContent>
       </BreakpointProxy>
    </Breakpoints>
