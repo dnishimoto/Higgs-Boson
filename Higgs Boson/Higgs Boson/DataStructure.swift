@@ -86,6 +86,7 @@ struct QRTLSpectralResult {
 import Foundation
 
 enum QRTLConstants {
+    static let pumpRadius = 3.0
     static let targetHiggsMassGeV = 125.0
     static let planckConstant = 6.62607015e-34
     static let speedOfLight = 299_792_458.0
