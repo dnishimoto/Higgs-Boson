@@ -309,6 +309,8 @@ final class QRTLSimulation: ObservableObject {
         createProtons()
 
         createHiggsNode()
+        
+        initializeCollisionQuarks()
 
     }
 
@@ -520,6 +522,80 @@ final class QRTLSimulation: ObservableObject {
                 originalPosition: SIMD3<Double>(xB, 0, 0.18)
             )
         ]
+    }
+  
+    func collisionEnergyDiagnostics() -> (
+        totalLatticeEnergyJ: Double,
+        coreLatticeEnergyJ: Double,
+        massEnergyJ: Double,
+        massEquivalentKg: Double,
+        collisionOccurred: Bool
+    ) {
+
+        var totalLatticeEnergyJ = 0.0
+        var coreLatticeEnergyJ = 0.0
+
+        // Collision center
+        let centerX =
+            (protonAX + protonBX) * 0.5
+
+        // --------------------------------------------------------
+        // Measure lattice energy
+        // --------------------------------------------------------
+
+        for cell in cells {
+
+            let cellEnergy =
+                max(
+                    0.0,
+                    cell.localEnergy
+                )
+
+            totalLatticeEnergyJ +=
+                cellEnergy
+
+            // Distance from the collision center
+            let dx =
+                Double(cell.position.x) - centerX
+
+            let distance =
+                abs(dx)
+
+            // Energy inside the collision core
+            if distance <= collisionCoreRadius {
+
+                coreLatticeEnergyJ +=
+                    cellEnergy
+            }
+        }
+
+        // --------------------------------------------------------
+        // Transient collision mass-energy
+        // --------------------------------------------------------
+
+        let massEnergyJ =
+            max(
+                0.0,
+                collisionMassEnergyJ
+            )
+
+        // --------------------------------------------------------
+        // E = mc²
+        // --------------------------------------------------------
+
+        let c =
+            QRTLConstants.speedOfLight
+
+        let massEquivalentKg =
+            massEnergyJ / (c * c)
+
+        return (
+            totalLatticeEnergyJ: totalLatticeEnergyJ,
+            coreLatticeEnergyJ: coreLatticeEnergyJ,
+            massEnergyJ: massEnergyJ,
+            massEquivalentKg: massEquivalentKg,
+            collisionOccurred: collisionOccurred
+        )
     }
     private func buildLattice() {
 
@@ -1071,7 +1147,7 @@ final class QRTLSimulation: ObservableObject {
 
     // ========================================================
 
-    private func updatePhysics(dt: Double) {
+    func updatePhysics(dt: Double) {
 
         guard dt > 0.0 else {
             return
