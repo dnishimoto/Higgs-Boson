@@ -59,8 +59,18 @@ final class QRTLCollectiveSpectralAnalyzer {
         let samplingFrequency = 1.0 / sampleInterval
         let frequency = Double(bestIndex) * samplingFrequency / Double(n)
         let omega = 2.0 * Double.pi * frequency
-        let wavelength = QRTLConstants.speedOfLight / frequency
-        let value = QRTLSpectralResult(peakIndex: bestIndex, frequencyHz: frequency, angularFrequency: omega, wavelengthMeters: wavelength, peakAmplitude: bestAmplitude, sampleCount: n, sampleInterval: sampleInterval, samplingFrequencyHz: samplingFrequency, nyquistFrequencyHz: samplingFrequency * 0.5)
+        let wavelength = QRTLConstants.speedOfLight / max(frequency, 1e-300)
+        let value = QRTLSpectralResult(
+            peakIndex: bestIndex,
+            frequencyHz: frequency,
+            angularFrequency: omega,
+            wavelengthMeters: wavelength,
+            peakAmplitude: bestAmplitude,
+            sampleCount: n,
+            sampleInterval: sampleInterval,
+            samplingFrequencyHz: samplingFrequency,
+            nyquistFrequencyHz: samplingFrequency * 0.5
+        )
         result = value
         return value
     }

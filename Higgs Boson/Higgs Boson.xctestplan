@@ -1,0 +1,38 @@
+{
+  "configurations" : [
+    {
+      "id" : "6D47AE56-2466-4385-B455-22D2F5BE628E",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:Higgs Boson.xcodeproj",
+      "identifier" : "F7C3CD4E3060576300B45B4F",
+      "name" : "Higgs Boson"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:Higgs Boson.xcodeproj",
+        "identifier" : "F7C3CD603060576400B45B4F",
+        "name" : "Higgs BosonTests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:Higgs Boson.xcodeproj",
+        "identifier" : "F7C3CD6A3060576400B45B4F",
+        "name" : "Higgs BosonUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

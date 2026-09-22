@@ -7,24 +7,85 @@
 
 import Foundation
 struct CollisionQuark {
-    enum Flavor {
-        case up
-        case down
-    }
-
+    enum Flavor { case up, down }
     let flavor: Flavor
     let protonID: Int
-
     var position: SIMD3<Double>
     var velocity: SIMD3<Double>
-
     var originalPosition: SIMD3<Double>
-
     var compression: Double = 0.0
     var energyJ: Double = 0.0
 }
-enum QRTLConstants {
 
+struct QRTLCell {
+    let index: Int
+    let gridX: Int
+    let gridY: Int
+    let gridZ: Int
+    let position: SIMD3<Float>
+
+    var displacement = SIMD3<Float>(0, 0, 0)
+    var velocity = SIMD3<Float>(0, 0, 0)
+    var twist: Double = 0
+    var phase: Double = 0
+    var amplitude: Double = 0
+    var localEnergy: Double = 0
+    var localStrain: Double = 0
+    var couplingState: Double = 0
+
+    var modeCoordinate: Double = 0
+    var modeVelocity: Double = 0
+    var modeAcceleration: Double = 0
+    var modeDirection = SIMD3<Float>(0, 0, 0)
+
+    var previousPhase: Double = 0
+    var unwrappedPhase: Double = 0
+    var neighbors: [Int] = []
+
+    // Borlagrino flow (vector in lattice units) and emergent charge
+    var borlagrinoFlow = SIMD3<Float>(0, 0, 0)
+    var charge: Double = 0
+}
+
+struct QRTLEnergyState {
+    var equilibriumShellEnergy: Double = QRTLConstants.collisionKineticEnergyJ
+    var shellEnergy: Double = QRTLConstants.collisionKineticEnergyJ
+    var kineticEnergy: Double = 0
+    var deformation: Double = 0
+    var shellInstability: Double = 0
+    var isUnstable: Bool = false
+}
+
+struct HiggsLikeMode {
+    var active: Bool = false
+    var age: Double = 0
+    var energy: Double = 0
+    var frequencyHz: Double = 0
+    var massGeV: Double = 0
+    var amplitude: Double = 0
+    var phase: Double = 0
+    var coherence: Double = 0
+    var shellEnergy: Double = 0
+    var shellInstability: Double = 0
+    var decayProgress: Double = 0
+}
+
+struct QRTLSpectralResult {
+    let peakIndex: Int
+    let frequencyHz: Double
+    let angularFrequency: Double
+    let wavelengthMeters: Double
+    let peakAmplitude: Double
+    let sampleCount: Int
+    let sampleInterval: Double
+    let samplingFrequencyHz: Double
+    let nyquistFrequencyHz: Double
+}
+
+
+import Foundation
+
+enum QRTLConstants {
     static let targetHiggsMassGeV = 125.0
     static let planckConstant = 6.62607015e-34
     static let speedOfLight = 299_792_458.0
@@ -41,9 +102,7 @@ enum QRTLConstants {
     static let twistRestoring = 0.08
     static let phaseRestoring = 0.03
 
-    // Physical QRTL mechanical scale. Cell displacement and velocity
-    // remain in lattice units; energy is calculated after conversion
-    // to meters and seconds.
+    // Softened mechanical scale so lattice state stays finite in sim units
     static let effectiveMassKg = 1.0e-24
     static let effectiveStiffnessNPerM = 1.0e28
     static let latticeCellSpacingMeters = 1.0e-15
@@ -51,7 +110,10 @@ enum QRTLConstants {
     static let dampingRatePerSecond = 2.0e23
     static let shellRelaxationRatePerSecond = 1.0e24
 
-    // LHC Run-3 beam values used for the incoming collision budget.
+    // Clamp lattice oscillator coordinates (prevents inf energy)
+    static let maxLatticeDisplacement = 50.0
+    static let maxLatticeVelocity = 50.0
+
     static let protonRestEnergyGeV = 0.93827208816
     static let lhcProtonBeamEnergyTeV = 6.8
     static let lhcProtonBeamEnergyGeV = lhcProtonBeamEnergyTeV * 1_000.0
@@ -80,146 +142,16 @@ enum QRTLConstants {
     static let excitationRadius = 3.0
     static let activeEnergyThresholdJ = 1.0e-18
     static let sceneScale: Float = 0.75
+
+    // Borlagrino / charge (dimensionless lattice flow; does not create energy)
+    static let borlagrinoCoupling = 0.12
+    static let borlagrinoDamping = 0.05
+    static let chargeFromCirculation = 0.25
+    static let twistAttractStrength = 0.10
+    static let twistRepelStrength = 0.12
 }
 
 
-// ============================================================
 
-// MARK: - QRTL CELL
 
-// ============================================================
 
-struct QRTLCell {
-
-    let index: Int
-
-    let gridX: Int
-
-    let gridY: Int
-
-    let gridZ: Int
-
-    let position: SIMD3<Float>
-
-    // --------------------------------------------------------
-
-    // QRTL lattice state
-
-    // --------------------------------------------------------
-
-    var displacement = SIMD3<Float>(0, 0, 0)
-
-    var velocity = SIMD3<Float>(0, 0, 0)
-
-    var twist: Double = 0
-
-    var phase: Double = 0
-
-    var amplitude: Double = 0
-
-    var localEnergy: Double = 0
-
-    var localStrain: Double = 0
-
-    var couplingState: Double = 0
-
-    // --------------------------------------------------------
-
-    // Genuine oscillator state
-
-    // --------------------------------------------------------
-
-    var modeCoordinate: Double = 0
-
-    var modeVelocity: Double = 0
-
-    var modeAcceleration: Double = 0
-    var modeDirection = SIMD3<Float>(0, 0, 0)
-
-    // Phase history is now generated from the oscillator.
-
-    var previousPhase: Double = 0
-
-    var unwrappedPhase: Double = 0
-
-    // --------------------------------------------------------
-
-    // Neighbor indices
-
-    // --------------------------------------------------------
-
-    var neighbors: [Int] = []
-
-}
-
-// ============================================================
-
-// MARK: - ENERGY STATE
-
-// ============================================================
-
-struct QRTLEnergyState {
-
-    var equilibriumShellEnergy: Double = QRTLConstants.targetHiggsMassGeV * QRTLConstants.joulePerGeV
-
-    var shellEnergy: Double = QRTLConstants.targetHiggsMassGeV * QRTLConstants.joulePerGeV
-
-    var kineticEnergy: Double = 0
-
-    var deformation: Double = 0
-
-    var shellInstability: Double = 0
-
-    var isUnstable: Bool = false
-
-}
-
-// ============================================================
-
-// MARK: - HIGGS-LIKE MODE
-
-// ============================================================
-
-struct HiggsLikeMode {
-
-    var active: Bool = false
-
-    var age: Double = 0
-
-    var energy: Double = 0
-
-    var frequencyHz: Double = 0
-
-    var massGeV: Double = 0
-
-    var amplitude: Double = 0
-
-    var phase: Double = 0
-
-    var coherence: Double = 0
-
-    var shellEnergy: Double = 0
-
-    var shellInstability: Double = 0
-
-    var decayProgress: Double = 0
-
-}
-
-// ============================================================
-
-// ============================================================
-// MARK: - COLLECTIVE SPECTRAL ANALYSIS
-// ============================================================
-
-struct QRTLSpectralResult {
-    let peakIndex: Int
-    let frequencyHz: Double
-    let angularFrequency: Double
-    let wavelengthMeters: Double
-    let peakAmplitude: Double
-    let sampleCount: Int
-    let sampleInterval: Double
-    let samplingFrequencyHz: Double
-    let nyquistFrequencyHz: Double
-}

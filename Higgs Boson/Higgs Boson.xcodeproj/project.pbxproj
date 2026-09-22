@@ -27,6 +27,7 @@
 		F7C3CD4F3060576300B45B4F /* Higgs Boson.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Higgs Boson.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F7C3CD613060576400B45B4F /* Higgs BosonTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Higgs BosonTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F7C3CD6B3060576400B45B4F /* Higgs BosonUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Higgs BosonUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7C3CDEE306235C400B45B4F /* Higgs Boson.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Higgs Boson.xctestplan"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -75,6 +76,7 @@
 		F7C3CD463060576300B45B4F = {
 			isa = PBXGroup;
 			children = (
+				F7C3CDEE306235C400B45B4F /* Higgs Boson.xctestplan */,
 				F7C3CD513060576300B45B4F /* Higgs Boson */,
 				F7C3CD643060576400B45B4F /* Higgs BosonTests */,
 				F7C3CD6E3060576400B45B4F /* Higgs BosonUITests */,
