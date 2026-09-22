@@ -6,6 +6,23 @@
 //
 
 import Foundation
+struct CollisionQuark {
+    enum Flavor {
+        case up
+        case down
+    }
+
+    let flavor: Flavor
+    let protonID: Int
+
+    var position: SIMD3<Double>
+    var velocity: SIMD3<Double>
+
+    var originalPosition: SIMD3<Double>
+
+    var compression: Double = 0.0
+    var energyJ: Double = 0.0
+}
 enum QRTLConstants {
 
     static let targetHiggsMassGeV = 125.0
