@@ -6,6 +6,15 @@
 //
 
 import Foundation
+
+struct EjectedUpQuark {
+    var position: SIMD3<Float>
+    var velocity: SIMD3<Float>
+    var momentum: SIMD3<Float>
+    var energyJ: Double
+    var active: Bool
+}
+
 struct CollisionQuark {
     enum Flavor { case up, down }
     let flavor: Flavor
@@ -86,6 +95,15 @@ struct QRTLSpectralResult {
 import Foundation
 
 enum QRTLConstants {
+    static let minimumCoherence: Double = 0.70
+    static let minimumResonanceDuration: Double = 1.0
+    static let stableEnergyTolerance = 0.001
+    static let higgsEnergyTolerance = 0.05
+    static let higgsReferenceEnergyJ = 2.00e-8
+    static let sampleCount = 4096
+    static let phaseStiffness: Double = 0.03
+    static let twistStiffness: Double = 0.08
+    static let upQuarkMassKg = 3.85e-30
     static let pumpRadius = 3.0
     static let targetHiggsMassGeV = 125.0
     static let planckConstant = 6.62607015e-34
@@ -150,6 +168,8 @@ enum QRTLConstants {
     static let chargeFromCirculation = 0.25
     static let twistAttractStrength = 0.10
     static let twistRepelStrength = 0.12
+    
+
 }
 
 

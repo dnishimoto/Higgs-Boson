@@ -12,6 +12,20 @@ import simd
 import Combine
 
 final class QRTLSimulation: ObservableObject {
+    var collectiveSignal: [Double] = []
+    
+    private var ejectedUpQuarks: [EjectedUpQuark] = []
+
+    private var ejectedEnergyJ: Double = 0.0
+    private var stableShellEnergyJ: Double = 0.0
+
+    private var naturalFrequencyHz: Double = 0.0
+    private var resonantModeEnergyJ: Double = 0.0
+
+    private var resonancePersistenceTime: Double = 0.0
+    private var previousLatticeEnergy: Double = 0.0
+
+    private var higgsLikeModeCandidate = false
     
     private var collisionDirection =
         SIMD3<Float>(1.0, 0.0, 0.0)
@@ -78,7 +92,6 @@ final class QRTLSimulation: ObservableObject {
     @Published var currentLatticeEnergyJ = 0.0
     @Published var currentLatticeEnergyGeV = 0.0
     @Published var currentLatticeEnergyTeV = 0.0
-    @Published var resonantModeEnergyJ = 0.0
     @Published var resonantModeEnergyGeV = 0.0
     @Published var resonantModeEnergyTeV = 0.0
     @Published var dissipatedEnergyJ = 0.0
@@ -235,7 +248,636 @@ final class QRTLSimulation: ObservableObject {
                            originalPosition: SIMD3(xB, 0, 0.18))
         ]
     }
+    private func identifyResonantMode(
+        naturalFrequency: Double
+    ) -> Double {
 
+        guard naturalFrequency > 0.0 else {
+            return 0.0
+        }
+
+        let h =
+            QRTLConstants.planckConstant
+
+        let energy =
+            h *
+            naturalFrequency
+
+        guard energy.isFinite else {
+            return 0.0
+        }
+
+        resonantModeEnergyJ =
+            energy
+
+        return energy
+    }
+    private func analyzeNaturalFrequency(
+        sampleInterval: Double
+    ) -> Double {
+
+        guard sampleInterval > 0.0 else {
+            return 0.0
+        }
+
+        let count =
+            collectiveSignal.count
+
+        guard count >= 32 else {
+            return 0.0
+        }
+
+        let sampleRate =
+            1.0 / sampleInterval
+
+        var strongestFrequency = 0.0
+        var strongestPower = 0.0
+
+        let minimumFrequency =
+            sampleRate / Double(count)
+
+        let maximumFrequency =
+            sampleRate / 2.0
+
+        guard maximumFrequency > minimumFrequency else {
+            return 0.0
+        }
+
+        for bin in 1...(count / 2) {
+
+            let frequency =
+                Double(bin) *
+                sampleRate /
+                Double(count)
+
+            var real = 0.0
+            var imaginary = 0.0
+
+            for sampleIndex in 0..<count {
+
+                let angle =
+                    2.0 *
+                    Double.pi *
+                    Double(bin) *
+                    Double(sampleIndex) /
+                    Double(count)
+
+                let sample =
+                    collectiveSignal[sampleIndex]
+
+                real +=
+                    sample *
+                    cos(angle)
+
+                imaginary -=
+                    sample *
+                    sin(angle)
+            }
+
+            let power =
+                real * real +
+                imaginary * imaginary
+
+            if power > strongestPower {
+
+                strongestPower =
+                    power
+
+                strongestFrequency =
+                    frequency
+            }
+        }
+
+        return strongestFrequency
+    }
+    private func recordCollectiveSignal() {
+
+        guard !cells.isEmpty else {
+            return
+        }
+
+        var signal = 0.0
+
+        for cell in cells {
+
+            signal +=
+                cell.modeCoordinate
+        }
+
+        guard signal.isFinite else {
+            return
+        }
+
+        collectiveSignal.append(signal)
+
+        if collectiveSignal.count >
+            QRTLConstants.sampleCount {
+
+            collectiveSignal.removeFirst(
+                collectiveSignal.count -
+                QRTLConstants.sampleCount
+            )
+        }
+    }
+    private func evaluateHiggsLikeMode() -> Bool {
+
+        let initialEnergy =
+            collisionKineticEnergyJ
+
+        guard initialEnergy > 0.0 else {
+            return false
+        }
+
+        let energyConserved =
+            checkEnergyConservation(
+                initialEnergy:
+                    initialEnergy
+            )
+
+        let stableShell =
+            evaluateStableEnergyShell()
+
+        let frequencyValid =
+            naturalFrequencyHz > 0.0
+
+        let resonancePersistent =
+            resonancePersistenceTime >=
+            QRTLConstants.minimumResonanceDuration
+
+        let coherent =
+            collectiveCoherence >=
+            QRTLConstants.minimumCoherence
+
+        let energyMatch =
+            isWithinHiggsEnergyWindow(
+                resonantEnergy:
+                    resonantModeEnergyJ
+            )
+
+        let candidate =
+            energyConserved &&
+            stableShell &&
+            frequencyValid &&
+            resonancePersistent &&
+            coherent &&
+            energyMatch
+
+        print("""
+        
+        HIGGS-LIKE MODE EVALUATION
+        
+        Energy conserved:
+            \(energyConserved)
+        
+        Stable shell:
+            \(stableShell)
+        
+        Natural frequency:
+            \(naturalFrequencyHz) Hz
+        
+        Resonance persistent:
+            \(resonancePersistent)
+        
+        Coherence:
+            \(collectiveCoherence)
+        
+        Energy match:
+            \(energyMatch)
+        
+        Candidate mode:
+            \(candidate)
+        
+        """)
+
+        return candidate
+    }
+    private func isWithinHiggsEnergyWindow(
+        resonantEnergy: Double
+    ) -> Bool {
+
+        let referenceEnergy =
+            QRTLConstants.higgsReferenceEnergyJ
+
+        guard referenceEnergy > 0.0,
+              resonantEnergy > 0.0 else {
+            return false
+        }
+
+        let relativeDifference =
+            abs(
+                resonantEnergy -
+                referenceEnergy
+            ) /
+            referenceEnergy
+
+        return relativeDifference <=
+            QRTLConstants.higgsEnergyTolerance
+    }
+    private func evaluateStableEnergyShell() -> Bool {
+
+        let currentEnergy =
+            totalMechanicalLatticeEnergy()
+
+        guard currentEnergy.isFinite,
+              currentEnergy > 0.0 else {
+            return false
+        }
+
+        if previousLatticeEnergy <= 0.0 {
+
+            previousLatticeEnergy =
+                currentEnergy
+
+            return false
+        }
+
+        let energyChange =
+            abs(
+                currentEnergy -
+                previousLatticeEnergy
+            )
+
+        let relativeChange =
+            energyChange /
+            max(
+                currentEnergy,
+                1.0e-30
+            )
+
+        previousLatticeEnergy =
+            currentEnergy
+
+        let tolerance =
+            QRTLConstants.stableEnergyTolerance
+
+        return relativeChange <
+            tolerance
+    }
+    private func updateResonancePersistence(
+        naturalFrequency: Double,
+        dt: Double
+    ) {
+
+        guard naturalFrequency > 0.0 else {
+            resonancePersistenceTime = 0.0
+            return
+        }
+
+        resonancePersistenceTime +=
+            max(
+                0.0,
+                dt
+            )
+    }
+    private func checkEnergyConservation(
+        initialEnergy: Double
+    ) -> Bool {
+
+        guard initialEnergy > 0.0 else {
+            return false
+        }
+
+        let ejectedEnergy =
+            calculateEjectedParticleEnergy()
+
+        let currentLatticeEnergy =
+            totalMechanicalLatticeEnergy()
+
+        let accountedEnergy =
+            ejectedEnergy +
+            currentLatticeEnergy
+
+        guard accountedEnergy.isFinite else {
+            return false
+        }
+
+        let difference =
+            abs(
+                initialEnergy -
+                accountedEnergy
+            )
+
+        let relativeError =
+            difference /
+            max(
+                abs(initialEnergy),
+                1.0e-30
+            )
+
+        let tolerance = 0.05
+
+        print("""
+        
+        ENERGY CONSERVATION
+        
+        Initial energy:
+            \(initialEnergy) J
+        
+        Ejected energy:
+            \(ejectedEnergy) J
+        
+        Lattice energy:
+            \(currentLatticeEnergy) J
+        
+        Accounted energy:
+            \(accountedEnergy) J
+        
+        Relative error:
+            \(relativeError)
+        
+        """)
+        
+        return relativeError <= tolerance
+    }
+    private func calculateStableShellEnergy() -> Double {
+
+        guard !cells.isEmpty else {
+            return 0.0
+        }
+
+        var shellEnergy = 0.0
+
+        for cell in cells {
+
+            let displacementMagnitude =
+                Double(
+                    length(cell.displacement)
+                )
+
+            let velocityMagnitude =
+                Double(
+                    length(cell.velocity)
+                )
+
+            let twistMagnitude =
+                abs(
+                    Double(cell.twist)
+                )
+
+            let phaseMagnitude =
+                abs(
+                    Double(cell.phase)
+                )
+
+            let displacementEnergy =
+                0.5 *
+                QRTLConstants.effectiveStiffnessNPerM *
+                displacementMagnitude *
+                displacementMagnitude
+
+            let kineticEnergy =
+                0.5 *
+                QRTLConstants.effectiveMassKg *
+                velocityMagnitude *
+                velocityMagnitude
+
+            let twistEnergy =
+                0.5 *
+                QRTLConstants.twistStiffness *
+                twistMagnitude *
+                twistMagnitude
+
+            let phaseEnergy =
+                0.5 *
+                QRTLConstants.phaseStiffness *
+                phaseMagnitude *
+                phaseMagnitude
+
+            shellEnergy +=
+                displacementEnergy +
+                kineticEnergy +
+                twistEnergy +
+                phaseEnergy
+        }
+
+        stableShellEnergyJ =
+            max(
+                0.0,
+                shellEnergy
+            )
+
+        return stableShellEnergyJ
+    }
+    private func calculateEjectedParticleEnergy() -> Double {
+
+        guard !ejectedUpQuarks.isEmpty else {
+            return 0.0
+        }
+
+        let energy =
+            ejectedUpQuarks.reduce(0.0) {
+                partialResult,
+                particle in
+
+                guard particle.active else {
+                    return partialResult
+                }
+
+                return partialResult +
+                    particle.energyJ
+            }
+
+        return energy.isFinite
+            ? energy
+            : 0.0
+    }
+    private func updateEjectedUpQuarks(dt: Double) {
+
+        guard dt > 0.0 else {
+            return
+        }
+
+        guard !ejectedUpQuarks.isEmpty else {
+            return
+        }
+
+        for index in ejectedUpQuarks.indices {
+
+            guard ejectedUpQuarks[index].active else {
+                continue
+            }
+
+            let velocity =
+                ejectedUpQuarks[index].velocity
+
+            ejectedUpQuarks[index].position +=
+                velocity * Float(dt)
+        }
+    }
+    private func createEjectedUpQuarks(
+        collisionEnergyJ: Double,
+        collisionCenter: SIMD3<Float>
+    ) {
+
+        guard collisionEnergyJ > 0.0 else {
+            return
+        }
+
+        let outgoingEnergyFraction = 0.50
+
+        let totalEjectedEnergy =
+            collisionEnergyJ *
+            outgoingEnergyFraction
+
+        let energyPerParticle =
+            totalEjectedEnergy / 2.0
+
+        let upQuarkMassKg =
+            QRTLConstants.upQuarkMassKg
+
+        guard upQuarkMassKg > 0.0 else {
+            return
+        }
+
+        // Relativistic energy-momentum relation:
+        //
+        // E² = (pc)² + (mc²)²
+
+        let c =
+            QRTLConstants.speedOfLight
+
+        let restEnergy =
+            upQuarkMassKg * c * c
+
+        guard energyPerParticle > restEnergy else {
+            return
+        }
+
+        let momentumMagnitude =
+            sqrt(
+                max(
+                    0.0,
+                    energyPerParticle *
+                    energyPerParticle -
+                    restEnergy *
+                    restEnergy
+                )
+            ) / c
+
+        let totalEnergy =
+            energyPerParticle
+
+        let gamma =
+            totalEnergy / restEnergy
+
+        let beta =
+            sqrt(
+                max(
+                    0.0,
+                    1.0 -
+                    1.0 / (gamma * gamma)
+                )
+            )
+
+        let speed =
+            beta * c
+
+        let momentum =
+            momentumMagnitude
+
+        let directionA =
+            SIMD3<Float>(
+                1.0,
+                0.0,
+                0.0
+            )
+
+        let directionB =
+            SIMD3<Float>(
+                -1.0,
+                0.0,
+                0.0
+            )
+
+        let velocityA =
+            directionA *
+            Float(speed)
+
+        let velocityB =
+            directionB *
+            Float(speed)
+
+        let momentumA =
+            directionA *
+            Float(momentum)
+        
+        let momentumB =
+            directionB *
+            Float(momentum)
+
+        let offset: Float = 0.5
+
+        ejectedUpQuarks = [
+
+            EjectedUpQuark(
+                position:
+                    collisionCenter +
+                    SIMD3<Float>(
+                        offset,
+                        0.0,
+                        0.0
+                    ),
+
+                velocity:
+                    velocityA,
+
+                momentum:
+                    momentumA,
+
+                energyJ:
+                    energyPerParticle,
+
+                active:
+                    true
+            ),
+
+            EjectedUpQuark(
+                position:
+                    collisionCenter +
+                    SIMD3<Float>(
+                        -offset,
+                        0.0,
+                        0.0
+                    ),
+
+                velocity:
+                    velocityB,
+
+                momentum:
+                    momentumB,
+
+                energyJ:
+                    energyPerParticle,
+
+                active:
+                    true
+            )
+        ]
+
+        ejectedEnergyJ =
+            totalEjectedEnergy
+
+        print("""
+        
+        EJECTED UP QUARKS
+        
+        Number:
+            \(ejectedUpQuarks.count)
+        
+        Energy per particle:
+            \(energyPerParticle) J
+        
+        Total ejected energy:
+            \(ejectedEnergyJ) J
+        
+        Speed:
+            \(speed) m/s
+        
+        Momentum per particle:
+            \(momentum) kg·m/s
+        
+        """)
+    }
     private func createQuarkNodes() {
         func make(_ color: UIColor) -> SCNNode {
             let g = SCNSphere(radius: 0.12)

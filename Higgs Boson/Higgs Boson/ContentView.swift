@@ -14,7 +14,7 @@
  However, the current result shows that the affected cells are moving almost perfectly together. In the ocean analogy, this would be like the water around the stone all moving in nearly the same direction and at nearly the same phase. Because the waves are so closely synchronized, the calculated collective coherence is 1.0. As a result, the system currently treats essentially all of the lattice energy as belonging to the same collective resonant motion. The calculated lattice energy is about 1.078 × 10⁻⁶ joules, which corresponds to approximately 6.73 TeV when expressed as particle-energy equivalent.
 
  
-
+ The Higgs boson has a measured mass of about 125.2 GeV, which corresponds through \(E=hf\) to an energy-equivalent frequency of approximately 3.03 × 10²⁵ Hz; in the QRTL analogy, this can be treated as a reference frequency for comparing the lattice's natural oscillation. However, a Higgs boson does not form simply because a system oscillates at 3.03 × 10²⁵ Hz, because Higgs production requires an appropriate particle interaction with sufficient center-of-mass energy and the relevant Standard Model couplings. Therefore, the QRTL model should determine its actual dominant frequency from the time evolution of the lattice after the collision, and then compare that measured natural/resonant frequency and its corresponding energy with the Higgs reference.
 
  */
 import SwiftUI
