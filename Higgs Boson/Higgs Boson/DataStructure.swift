@@ -95,6 +95,11 @@ struct QRTLSpectralResult {
 import Foundation
 
 enum QRTLConstants {
+    static let helium2MinimumShellEnergyGeV: Double = 1.0e-6
+    static let helium2MaximumSeparation: Double = 2.0
+    static let helium2MinimumPersistenceSamples: Int = 5
+    static let helium2DissolutionEnergyFraction: Double = 0.50
+    static let joulesPerGeV: Double = 1.602176634e-10
     static let protonVelocityMPerS: Double = 1.0e8
     static let protonMassKg: Double = 1.67262192369e-27
     static let cellSpacing: Double = 1.0
@@ -104,7 +109,7 @@ enum QRTLConstants {
     static let stableEnergyTolerance = 0.001
     static let higgsEnergyTolerance = 0.05
     static let higgsReferenceEnergyJ = 2.00e-8
-    static let sampleCount = 100
+  static let sampleCount = 100
     static let phaseStiffness: Double = 0.03
     static let twistStiffness: Double = 0.08
     static let upQuarkMassKg = 3.85e-30
@@ -127,7 +132,7 @@ enum QRTLConstants {
 
     // Softened mechanical scale so lattice state stays finite in sim units
     static let effectiveMassKg = 1.0e-24
-    static let effectiveStiffnessNPerM = 1.0e28
+    static let effectiveStiffnessNPerM = 0.005699
     static let latticeCellSpacingMeters = 1.0e-15
     static let collisionKineticFractionToPotential = 0.50
     static let dampingRatePerSecond = 2.0e23

@@ -7,6 +7,14 @@ import simd
 import Combine
 
 final class QRTLSimulation: ObservableObject {
+    @Published var helium2CandidateDetected: Bool = false
+    @Published var helium2StableBoundState: Bool = false
+    @Published var helium2DissolutionDetected: Bool = false
+
+    var helium2PeakShellEnergyGeV: Double = 0.0
+    var helium2MinimumProtonSeparation: Double = .greatestFiniteMagnitude
+    var helium2PersistenceSamples: Int = 0
+    var helium2InitialShellEnergyGeV: Double = 0.0
     @Published var collisionActive: Bool = false
     @Published var collisionCompleted: Bool = false
 
@@ -263,54 +271,513 @@ final class QRTLSimulation: ObservableObject {
                            originalPosition: SIMD3(xB, 0, 0.18))
         ]
     }
-    private func analyzeNaturalFrequency() {
+    private func evaluateHelium2Candidate() {
 
-        guard collectiveSignal.count >= 3 else {
-            naturalFrequency = 0.0
+        helium2CandidateDetected = false
+        helium2StableBoundState = false
+        helium2DissolutionDetected = false
+
+        helium2PeakShellEnergyGeV = 0.0
+        helium2MinimumProtonSeparation = .greatestFiniteMagnitude
+        helium2PersistenceSamples = 0
+        helium2InitialShellEnergyGeV = 0.0
+
+        guard cells.count >= 2 else {
             return
         }
 
+        // --------------------------------------------------------
+        // Treat the two most energetic localized regions as the
+        // two proton-associated regions.
+        // --------------------------------------------------------
+
+        let sortedCells = cells.sorted {
+            $0.localEnergy > $1.localEnergy
+        }
+
+        guard
+            let protonA = sortedCells.first
+        else {
+            return
+        }
+
+        var protonB: QRTLCell?
+
+        for candidate in sortedCells.dropFirst() {
+
+            let dx =
+                Double(candidate.position.x) -
+                Double(protonA.position.x)
+
+            let dy =
+                Double(candidate.position.y) -
+                Double(protonA.position.y)
+
+            let dz =
+                Double(candidate.position.z) -
+                Double(protonA.position.z)
+
+            let separation = sqrt(
+                dx * dx +
+                dy * dy +
+                dz * dz
+            )
+
+            if separation > 0.0 {
+                protonB = candidate
+                break
+            }
+        }
+
+        guard let protonB else {
+            return
+        }
+
+        // --------------------------------------------------------
+        // Proton separation
+        // --------------------------------------------------------
+
+        let dx =
+            Double(protonB.position.x) -
+            Double(protonA.position.x)
+
+        let dy =
+            Double(protonB.position.y) -
+            Double(protonA.position.y)
+
+        let dz =
+            Double(protonB.position.z) -
+            Double(protonA.position.z)
+
+        let separation = sqrt(
+            dx * dx +
+            dy * dy +
+            dz * dz
+        )
+
+        helium2MinimumProtonSeparation = separation
+
+        // --------------------------------------------------------
+        // Localized shell energy
+        // --------------------------------------------------------
+
+        let shellEnergyJ =
+            protonA.localEnergy +
+            protonB.localEnergy
+
+        let shellEnergyGeV =
+            shellEnergyJ /
+            QRTLConstants.joulesPerGeV
+
+        helium2PeakShellEnergyGeV =
+            max(
+                helium2PeakShellEnergyGeV,
+                shellEnergyGeV
+            )
+
+        if helium2InitialShellEnergyGeV == 0.0 {
+            helium2InitialShellEnergyGeV = shellEnergyGeV
+        }
+
+        // --------------------------------------------------------
+        // Bound-like condition
+        // --------------------------------------------------------
+
+        let localized =
+            shellEnergyGeV >=
+            QRTLConstants.helium2MinimumShellEnergyGeV
+
+        let closeEnough =
+            separation <=
+            QRTLConstants.helium2MaximumSeparation
+
+        let resonancePresent =
+            naturalFrequency > 0.0 &&
+            resonantModeEnergyGeV > 0.0
+
+        if localized &&
+           closeEnough &&
+           resonancePresent {
+
+            helium2PersistenceSamples += 1
+        } else {
+            helium2PersistenceSamples = 0
+        }
+
+        // --------------------------------------------------------
+        // Candidate requires temporary persistence.
+        // --------------------------------------------------------
+
+        if helium2PersistenceSamples >=
+            QRTLConstants.helium2MinimumPersistenceSamples {
+
+            helium2CandidateDetected = true
+        }
+
+        // --------------------------------------------------------
+        // A stable He-2 state is deliberately NOT expected.
+        //
+        // If the localized shell later loses at least the
+        // specified fraction of its initial energy, classify
+        // the candidate as dissolved.
+        // --------------------------------------------------------
+
+        let dissolutionThreshold =
+            helium2InitialShellEnergyGeV *
+            QRTLConstants.helium2DissolutionEnergyFraction
+
+        if helium2CandidateDetected &&
+           shellEnergyGeV < dissolutionThreshold {
+
+            helium2DissolutionDetected = true
+            helium2StableBoundState = false
+        }
+
+        // --------------------------------------------------------
+        // Debug
+        // --------------------------------------------------------
+
+        print("""
+        ========================================================
+        HELIUM-2 CANDIDATE TEST
+        ========================================================
+
+        Proton A cell:
+            \(protonA.index)
+
+        Proton B cell:
+            \(protonB.index)
+
+        Proton separation:
+            \(separation)
+
+        Maximum allowed separation:
+            \(QRTLConstants.helium2MaximumSeparation)
+
+        Shell energy:
+            \(shellEnergyGeV) GeV
+
+        Peak shell energy:
+            \(helium2PeakShellEnergyGeV) GeV
+
+        Resonant mode energy:
+            \(resonantModeEnergyGeV) GeV
+
+        Resonance frequency:
+            \(naturalFrequency) Hz
+
+        Persistence samples:
+            \(helium2PersistenceSamples)
+
+        Candidate detected:
+            \(helium2CandidateDetected)
+
+        Stable bound state:
+            \(helium2StableBoundState)
+
+        Dissolution detected:
+            \(helium2DissolutionDetected)
+
+        ========================================================
+        """)
+    }
+    // ============================================================
+    // NATURAL FREQUENCY FROM COLLECTIVE COLLISION SIGNAL
+    // ============================================================
+
+    func analyzeNaturalFrequency() {
+
+        naturalFrequency = 0.0
+        naturalAngularFrequency = 0.0
+        naturalFrequencyHz = 0.0
+
+        guard collectiveSignal.count >= 8 else {
+            return
+        }
+
+        let dt = QRTLConstants.timeStep
+
+        guard dt > 0.0 else {
+            return
+        }
+
+        // Remove the DC component so that the collision offset
+        // does not appear as a false resonance.
         let mean =
             collectiveSignal.reduce(0.0, +) /
             Double(collectiveSignal.count)
 
-        let centered =
-            collectiveSignal.map { $0 - mean }
+        let signal = collectiveSignal.map {
+            $0 - mean
+        }
 
-        let peak =
-            centered.map { abs($0) }.max() ?? 0.0
+        let sampleCount = signal.count
 
-        guard peak > 0.0 else {
-            naturalFrequency = 0.0
+        // Search frequencies from one FFT-like frequency bin
+        // through the Nyquist frequency.
+        let frequencyResolution =
+            1.0 /
+            (Double(sampleCount) * dt)
+
+        let nyquistFrequency =
+            1.0 /
+            (2.0 * dt)
+
+        guard frequencyResolution > 0.0,
+              nyquistFrequency > frequencyResolution else {
             return
         }
 
-        // Frequency analysis goes here.
+        var strongestFrequency = 0.0
+        var strongestAmplitude = 0.0
+
+        let maximumBin =
+            Int(nyquistFrequency / frequencyResolution)
+
+        guard maximumBin >= 1 else {
+            return
+        }
+
+        // Direct discrete Fourier projection.
+        //
+        // This avoids assigning a wavelength. The frequency comes
+        // from the time evolution of the collision signal.
+        for bin in 1...maximumBin {
+
+            let frequency =
+                Double(bin) * frequencyResolution
+
+            let angularFrequency =
+                2.0 * Double.pi * frequency
+
+            var real = 0.0
+            var imaginary = 0.0
+
+            for sample in 0..<sampleCount {
+
+                let time =
+                    Double(sample) * dt
+
+                let angle =
+                    angularFrequency * time
+
+                real +=
+                    signal[sample] *
+                    cos(angle)
+
+                imaginary +=
+                    signal[sample] *
+                    sin(angle)
+            }
+
+            let amplitude =
+                sqrt(
+                    real * real +
+                    imaginary * imaginary
+                )
+
+            if amplitude > strongestAmplitude {
+                strongestAmplitude = amplitude
+                strongestFrequency = frequency
+            }
+        }
+
+        guard strongestFrequency > 0.0 else {
+            return
+        }
+
+        naturalFrequency = strongestFrequency
+
+        naturalAngularFrequency =
+            2.0 *
+            Double.pi *
+            strongestFrequency
+
+        naturalFrequencyHz =
+            strongestFrequency
+
+        print("""
+        ========================================================
+        NATURAL FREQUENCY ANALYSIS
+        ========================================================
+
+        Signal samples:
+            \(sampleCount)
+
+        Time step:
+            \(dt) s
+
+        Frequency resolution:
+            \(frequencyResolution) Hz
+
+        Dominant frequency:
+            \(naturalFrequency) Hz
+
+        Angular frequency:
+            \(naturalAngularFrequency) rad/s
+
+        ========================================================
+        """)
     }
+
+
+    // ============================================================
+    // IDENTIFY RESONANT MODE AND CALCULATE ITS ENERGY
+    // ============================================================
+
+    @discardableResult
     private func identifyResonantMode(
         naturalFrequency: Double
     ) -> Double {
+
+        resonantModeAmplitude = 0.0
+        resonantModeEnergy = 0.0
+        resonantModeEnergyJ = 0.0
+        resonantModeEnergyGeV = 0.0
 
         guard naturalFrequency > 0.0 else {
             return 0.0
         }
 
-        let h =
-            QRTLConstants.planckConstant
-
-        let energy =
-            h *
-            naturalFrequency
-
-        guard energy.isFinite else {
+        guard collectiveSignal.count >= 8 else {
             return 0.0
         }
 
-        resonantModeEnergyJ =
-            energy
+        let dt = QRTLConstants.timeStep
 
-        return energy
+        guard dt > 0.0 else {
+            return 0.0
+        }
+
+        let sampleCount =
+            collectiveSignal.count
+
+        let angularFrequency =
+            2.0 *
+            Double.pi *
+            naturalFrequency
+
+        // Remove the DC component.
+        let mean =
+            collectiveSignal.reduce(0.0, +) /
+            Double(sampleCount)
+
+        var real = 0.0
+        var imaginary = 0.0
+
+        for sample in 0..<sampleCount {
+
+            let signal =
+                collectiveSignal[sample] - mean
+
+            let time =
+                Double(sample) * dt
+
+            let angle =
+                angularFrequency * time
+
+            real +=
+                signal * cos(angle)
+
+            imaginary +=
+                signal * sin(angle)
+        }
+
+        // Normalize the Fourier projection.
+        let amplitude =
+            (2.0 / Double(sampleCount)) *
+            sqrt(
+                real * real +
+                imaginary * imaginary
+            )
+
+        guard amplitude.isFinite,
+              amplitude > 0.0 else {
+            return 0.0
+        }
+
+        resonantModeAmplitude = amplitude
+
+        // --------------------------------------------------------
+        // Convert resonant displacement into mechanical energy.
+        //
+        // E = 1/2 k A²
+        //
+        // The result is bounded by the energy actually supplied
+        // by the proton collision.
+        // --------------------------------------------------------
+
+        let stiffness =
+            max(
+                QRTLConstants.effectiveStiffnessNPerM,
+                Double.leastNonzeroMagnitude
+            )
+
+        let calculatedEnergy =
+            0.5 *
+            stiffness *
+            amplitude *
+            amplitude
+
+        let availableEnergy =
+            max(
+                collisionKineticEnergyJ,
+                0.0
+            )
+
+        // The resonant mode cannot contain more energy than
+        // the collision supplied.
+        let boundedEnergy =
+            min(
+                calculatedEnergy,
+                availableEnergy
+            )
+
+        resonantModeEnergyJ =
+            max(
+                boundedEnergy,
+                0.0
+            )
+
+        resonantModeEnergyGeV =
+            resonantModeEnergyJ /
+            QRTLConstants.joulesPerGeV
+
+        resonantModeEnergy =
+            resonantModeEnergyJ
+
+        print("""
+        ========================================================
+        RESONANT MODE ANALYSIS
+        ========================================================
+
+        Natural frequency:
+            \(naturalFrequency) Hz
+
+        Angular frequency:
+            \(angularFrequency) rad/s
+
+        Resonant amplitude:
+            \(resonantModeAmplitude)
+
+        Calculated resonant energy:
+            \(calculatedEnergy) J
+
+        Available collision energy:
+            \(availableEnergy) J
+
+        Resonant mode energy:
+            \(resonantModeEnergyJ) J
+
+        Resonant mode energy:
+            \(resonantModeEnergyGeV) GeV
+
+        ========================================================
+        """)
+
+        return resonantModeEnergyJ
     }
+ 
     private func analyzeNaturalFrequency(
         sampleInterval: Double
     ) -> Double {
@@ -1819,16 +2286,12 @@ final class QRTLSimulation: ObservableObject {
         // --------------------------------------------------------
         // 1. PROTON COLLISION ENERGY
         // --------------------------------------------------------
-        //
-        // Classical kinetic energy:
-        //
-        // KE = 1/2 m v²
-        //
-        // Use the proton mass and incoming proton velocity.
-        //
 
-        let protonMassKg = QRTLConstants.protonMassKg
-        let protonVelocityMPerS = QRTLConstants.protonVelocityMPerS
+        let protonMassKg =
+            QRTLConstants.protonMassKg
+
+        let protonVelocityMPerS =
+            QRTLConstants.protonVelocityMPerS
 
         let protonKineticEnergyJ =
             0.5 *
@@ -1850,14 +2313,20 @@ final class QRTLSimulation: ObservableObject {
         collectiveSignal.removeAll()
 
         naturalFrequency = 0.0
+        naturalAngularFrequency = 0.0
+        naturalFrequencyHz = 0.0
+
         resonancePersistenceTime = 0.0
 
-        // Store the actual incoming proton energy
-        collisionKineticEnergyJ = protonKineticEnergyJ
-        initialCollisionEnergy = protonKineticEnergyJ
+        // Store actual collision energy
+        collisionKineticEnergyJ =
+            protonKineticEnergyJ
+
+        initialCollisionEnergy =
+            protonKineticEnergyJ
 
         // --------------------------------------------------------
-        // 3. INITIALIZE THE ACTUAL COLLISION
+        // 3. INITIALIZE COLLISION
         // --------------------------------------------------------
 
         initializeCollision(
@@ -1865,33 +2334,138 @@ final class QRTLSimulation: ObservableObject {
             collisionPosition: cells.count / 2
         )
 
+        guard !cells.isEmpty else {
+            testDampingOverride = nil
+            return
+        }
+
         // --------------------------------------------------------
-        // 4. RUN COLLISION DYNAMICS
+        // 4. CONVERT COLLISION ENERGY INTO AN OSCILLATORY STATE
+        //
+        // The initialization above creates displacement energy.
+        // Give the lattice the corresponding velocity component
+        // so that the collision produces an actual oscillation.
+        //
+        // For a harmonic oscillator:
+        //
+        //     E = 1/2 k x² + 1/2 m v²
+        //
+        // At the collision point we start near maximum
+        // displacement, then allow the lattice to evolve.
         // --------------------------------------------------------
 
-        updateCollisionDynamics(dt: dt)
+        let stiffness =
+            max(
+                QRTLConstants.effectiveStiffnessNPerM,
+                Double.leastNonzeroMagnitude
+            )
+
+        let mass =
+            max(
+                QRTLConstants.effectiveMassKg,
+                Double.leastNonzeroMagnitude
+            )
+
+        let omega =
+            sqrt(stiffness / mass)
 
         // --------------------------------------------------------
-        // 5. PROPAGATE COLLISION ENERGY INTO THE LATTICE
+        // Give every energized cell the velocity corresponding
+        // to its local oscillator state.
+        //
+        // This does NOT assign the final resonance frequency.
+        // It simply supplies the kinetic part of the collision
+        // disturbance so updateLattice() can generate motion.
         // --------------------------------------------------------
 
-        let numberOfSteps = QRTLConstants.sampleCount
+        for index in cells.indices {
 
-        for _ in 0..<numberOfSteps {
+            let displacement =
+                Double(cells[index].displacement.x)
+
+            let localEnergy =
+                max(
+                    cells[index].localEnergy,
+                    0.0
+                )
+
+            guard localEnergy > 0.0 else {
+                continue
+            }
+
+            // For the initialized collision, displacement already
+            // represents the local potential-energy component.
+            //
+            // Give the cell a small phase-shifted velocity so the
+            // disturbance evolves instead of remaining static.
+
+            let velocityScale =
+                omega * abs(displacement)
+
+            let direction =
+                displacement >= 0.0 ? 1.0 : -1.0
+
+            cells[index].velocity.x =
+                Float(
+                    velocityScale *
+                    direction
+                )
+        }
+
+        // --------------------------------------------------------
+        // 5. RECORD THE INITIAL COLLECTIVE STATE
+        // --------------------------------------------------------
+
+        recordCollectiveSignal()
+
+        // --------------------------------------------------------
+        // 6. PROPAGATE COLLISION THROUGH THE LATTICE
+        // --------------------------------------------------------
+
+        let numberOfSteps =
+            QRTLConstants.sampleCount
+
+        for step in 0..<numberOfSteps {
 
             updateLattice(dt: dt)
 
             recordCollectiveSignal()
+
+            // Stop only after the requested propagation period.
+            if step >= numberOfSteps - 1 {
+                break
+            }
         }
 
         // --------------------------------------------------------
-        // 6. ANALYZE THE COMPLETE COLLECTIVE SIGNAL
+        // 7. VERIFY THAT A DYNAMIC SIGNAL WAS GENERATED
+        // --------------------------------------------------------
+
+        guard collectiveSignal.count >= 8 else {
+
+            print("""
+            ========================================================
+            RESONANCE TEST
+            ========================================================
+
+            Insufficient collective signal samples:
+                \(collectiveSignal.count)
+
+            ========================================================
+            """)
+
+            testDampingOverride = nil
+            return
+        }
+
+        // --------------------------------------------------------
+        // 8. EXTRACT FREQUENCY FROM THE COLLECTIVE SIGNAL
         // --------------------------------------------------------
 
         analyzeNaturalFrequency()
 
         // --------------------------------------------------------
-        // 7. IDENTIFY THE RESONANT MODE
+        // 9. IDENTIFY THE RESONANT MODE
         // --------------------------------------------------------
 
         _ = identifyResonantMode(
@@ -1899,13 +2473,13 @@ final class QRTLSimulation: ObservableObject {
         )
 
         // --------------------------------------------------------
-        // 8. EVALUATE HIGGS-LIKE MODE
+        // 10. EVALUATE HIGGS-LIKE MODE
         // --------------------------------------------------------
 
         evaluateHiggsLikeMode()
 
         // --------------------------------------------------------
-        // 9. UPDATE RESONANCE PERSISTENCE
+        // 11. UPDATE RESONANCE PERSISTENCE
         // --------------------------------------------------------
 
         updateResonancePersistence(
@@ -1914,13 +2488,20 @@ final class QRTLSimulation: ObservableObject {
         )
 
         // --------------------------------------------------------
-        // 10. DEBUG
+        // 12. DEBUG
         // --------------------------------------------------------
 
+        let peakSignal =
+            collectiveSignal
+                .map { abs($0) }
+                .max() ?? 0.0
+
+        let finalSignal =
+            collectiveSignal.last ?? 0.0
+
         print("""
-        
         ========================================================
-        PROTON COLLISION TEST DEBUG
+        PROTON COLLISION RESONANCE TEST
         ========================================================
 
         Proton mass:
@@ -1935,7 +2516,7 @@ final class QRTLSimulation: ObservableObject {
         Initial collision energy:
             \(initialCollisionEnergy) J
 
-        Lattice energy:
+        Final lattice energy:
             \(totalMechanicalLatticeEnergy()) J
 
         Ejected energy:
@@ -1947,15 +2528,55 @@ final class QRTLSimulation: ObservableObject {
         Collective signal samples:
             \(collectiveSignal.count)
 
+        Peak collective signal:
+            \(peakSignal)
+
+        Final collective signal:
+            \(finalSignal)
+
+        Natural angular frequency:
+            \(naturalAngularFrequency) rad/s
+
         Natural frequency:
             \(naturalFrequency) Hz
+
+        Resonant mode amplitude:
+            \(resonantModeAmplitude)
+
+        Resonant mode energy:
+            \(resonantModeEnergyJ) J
 
         Resonant mode energy:
             \(resonantModeEnergyGeV) GeV
 
         ========================================================
         """)
+        
+        print("""
+        ========================================================
+        COLLECTIVE SIGNAL DEBUG
+        ========================================================
 
+        Samples:
+            \(collectiveSignal.count)
+
+        First:
+            \(collectiveSignal.first ?? 0.0)
+
+        Last:
+            \(collectiveSignal.last ?? 0.0)
+
+        Minimum:
+            \(collectiveSignal.min() ?? 0.0)
+
+        Maximum:
+            \(collectiveSignal.max() ?? 0.0)
+
+        Absolute peak:
+            \(collectiveSignal.map { abs($0) }.max() ?? 0.0)
+
+        ========================================================
+        """)
         // Remove test override
         testDampingOverride = nil
     }
@@ -2195,6 +2816,7 @@ final class QRTLSimulation: ObservableObject {
         let centerCell =
             cells[centerIndex]
 
+        /*
         print("""
         
         ========================================================
@@ -2238,6 +2860,9 @@ final class QRTLSimulation: ObservableObject {
 
         ========================================================
         """)
+         */
+        
+        evaluateHelium2Candidate()
     }
     private func applyProtonCollision(
         kineticEnergyJ: Double,

@@ -12,178 +12,310 @@ import XCTest
 
 final class ResonantModeDissipationTests: XCTestCase {
 
-    // MARK: - Test: Does damping suppress resonant mode energy?
-
-    func testDissipationDoesNotSuppressResonantModeByTenfold() {
-
-        // --------------------------------------------------------
-        // Run A: Normal damping
-        // --------------------------------------------------------
-
-        let normalSimulation = QRTLSimulation()
-
-        // Use the same initial collision conditions for both runs.
-        normalSimulation.reset()
-
-        normalSimulation.runCollisionForTesting(
-            damping: QRTLConstants.damping
-        )
-
-        let normalLatticeEnergy =
-            normalSimulation.totalMechanicalLatticeEnergy()
-
-        let normalResonantEnergyGeV =
-            normalSimulation.resonantModeEnergyGeV
-
-        let normalSignal =
-            normalSimulation.collectiveSignal
-
-        let normalFrequency =
-            normalSimulation.naturalFrequency
+        func testDissipationDoesNotSuppressResonantModeByTenfold() {
 
 
-        // --------------------------------------------------------
-        // Run B: Very low damping
-        // --------------------------------------------------------
+            let collisionEnergyGeV =
+                (0.5 *
+                 QRTLConstants.protonMassKg *
+                 QRTLConstants.protonVelocityMPerS *
+                 QRTLConstants.protonVelocityMPerS)
+                / QRTLConstants.joulesPerGeV
 
-        let lowDampingSimulation = QRTLSimulation()
+            let minimumResonantEnergyGeV = 0.0
+            let maximumResonantEnergyGeV = collisionEnergyGeV
 
-        lowDampingSimulation.reset()
+            // --------------------------------------------------------
+            // Run A: Normal damping
+            // --------------------------------------------------------
 
-        lowDampingSimulation.runCollisionForTesting(
-            damping: 0.000001
-        )
+            let normalSimulation = QRTLSimulation()
 
-        let lowDampingLatticeEnergy =
-            lowDampingSimulation.totalMechanicalLatticeEnergy()
+            normalSimulation.reset()
 
-        let lowDampingResonantEnergyGeV =
-            lowDampingSimulation.resonantModeEnergyGeV
+            normalSimulation.runCollisionForTesting(
+                damping: QRTLConstants.damping
+            )
+            
+           
 
-        let lowDampingSignal =
-            lowDampingSimulation.collectiveSignal
+            let normalLatticeEnergy =
+                normalSimulation.totalMechanicalLatticeEnergy()
 
-        let lowDampingFrequency =
-            lowDampingSimulation.naturalFrequency
+            let normalResonantEnergyGeV =
+                normalSimulation.resonantModeEnergyGeV
 
+            let normalSignal =
+                normalSimulation.collectiveSignal
 
-        // --------------------------------------------------------
-        // Diagnostic output
-        // --------------------------------------------------------
+            let normalFrequency =
+                normalSimulation.naturalFrequency
 
-        print("""
-        
-        ========================================================
-        DISSIPATION / RESONANCE TEST
-        ========================================================
-        
-        NORMAL DAMPING
-        
-        Lattice energy:
-            \(normalLatticeEnergy) J
-        
-        Resonant mode energy:
-            \(normalResonantEnergyGeV) GeV
-        
-        Signal samples:
-            \(normalSignal.count)
-        
-        Signal peak:
-            \(normalSignal.map { abs($0) }.max() ?? 0.0)
-        
-        Natural frequency:
-            \(normalFrequency) Hz
-        
-        
-        LOW DAMPING
-        
-        Lattice energy:
-            \(lowDampingLatticeEnergy) J
-        
-        Resonant mode energy:
-            \(lowDampingResonantEnergyGeV) GeV
-        
-        Signal samples:
-            \(lowDampingSignal.count)
-        
-        Signal peak:
-            \(lowDampingSignal.map { abs($0) }.max() ?? 0.0)
-        
-        Natural frequency:
-            \(lowDampingFrequency) Hz
-        
-        ========================================================
-        """)
+            // --------------------------------------------------------
+            // Run B: Very low damping
+            // --------------------------------------------------------
 
+            let lowDampingSimulation = QRTLSimulation()
 
-        // --------------------------------------------------------
-        // Determine whether damping causes a 10x suppression.
-        // --------------------------------------------------------
+            lowDampingSimulation.reset()
 
-        guard normalResonantEnergyGeV > 0 else {
-            XCTFail("""
-            Normal-damping resonantModeEnergyGeV is zero.
+            lowDampingSimulation.runCollisionForTesting(
+                damping: 0.000001
+            )
 
-            The test cannot determine whether damping causes
-            a 10x suppression because there is no measurable
-            resonant energy in the baseline case.
-            """)
-            return
-        }
+            let lowDampingLatticeEnergy =
+                lowDampingSimulation.totalMechanicalLatticeEnergy()
 
-        guard lowDampingResonantEnergyGeV > 0 else {
-            XCTFail("""
-            Low-damping resonantModeEnergyGeV is zero.
+            let lowDampingResonantEnergyGeV =
+                lowDampingSimulation.resonantModeEnergyGeV
 
-            This indicates that the problem may occur before
-            resonant energy calculation, possibly in the
-            collective signal or frequency analysis.
-            """)
-            return
-        }
+            let lowDampingSignal =
+                lowDampingSimulation.collectiveSignal
 
+            let lowDampingFrequency =
+                lowDampingSimulation.naturalFrequency
 
-        let resonanceRatio =
-            lowDampingResonantEnergyGeV /
-            normalResonantEnergyGeV
+            // --------------------------------------------------------
+            // Diagnostic output
+            // --------------------------------------------------------
 
+            print("""
+            ========================================================
+            DISSIPATION / RESONANCE TEST
+            ========================================================
 
-        print("""
-        
-        RESONANCE ENERGY RATIO
-        
-        Low damping / normal damping:
-            \(resonanceRatio)x
-        
-        """)
+            EXPECTED RANGES
 
+            Collision energy:
+                \(collisionEnergyGeV) GeV
 
-        // --------------------------------------------------------
-        // A 10x increase means damping is strongly suppressing
-        // the resonant mode.
-        //
-        // This test intentionally fails if the difference is
-        // >= 10x, because that identifies excessive damping.
-        // --------------------------------------------------------
+            Resonant energy range:
+                \(minimumResonantEnergyGeV) ... \(maximumResonantEnergyGeV) GeV
 
-        XCTAssertLessThan(
-            resonanceRatio,
-            10.0,
-            """
-            Dissipation appears to suppress resonantModeEnergyGeV
-            by at least 10x.
+            Maximum damping ratio:
+                < 10x
 
-            Normal damping:
+            --------------------------------------------------------
+
+            NORMAL DAMPING
+
+            Lattice energy:
+                \(normalLatticeEnergy) J
+
+            Resonant mode energy:
                 \(normalResonantEnergyGeV) GeV
 
-            Low damping:
+            Signal samples:
+                \(normalSignal.count)
+
+            Signal peak:
+                \(normalSignal.map { abs($0) }.max() ?? 0.0)
+
+            Natural frequency:
+                \(normalFrequency) Hz
+
+            --------------------------------------------------------
+
+            LOW DAMPING
+
+            Lattice energy:
+                \(lowDampingLatticeEnergy) J
+
+            Resonant mode energy:
                 \(lowDampingResonantEnergyGeV) GeV
 
-            Ratio:
+            Signal samples:
+                \(lowDampingSignal.count)
+
+            Signal peak:
+                \(lowDampingSignal.map { abs($0) }.max() ?? 0.0)
+
+            Natural frequency:
+                \(lowDampingFrequency) Hz
+
+            ========================================================
+            """)
+
+            // --------------------------------------------------------
+            // ASSERT: Signal exists
+            // --------------------------------------------------------
+
+            XCTAssertGreaterThan(
+                normalSignal.count,
+                0,
+                "Normal-damping collective signal contains no samples."
+            )
+
+            XCTAssertGreaterThan(
+                lowDampingSignal.count,
+                0,
+                "Low-damping collective signal contains no samples."
+            )
+
+            // --------------------------------------------------------
+            // ASSERT: Signal has measurable amplitude
+            // --------------------------------------------------------
+
+            let normalSignalPeak =
+                normalSignal.map { abs($0) }.max() ?? 0.0
+
+            let lowDampingSignalPeak =
+                lowDampingSignal.map { abs($0) }.max() ?? 0.0
+
+            XCTAssertGreaterThan(
+                normalSignalPeak,
+                0.0,
+                "Normal-damping collective signal has zero amplitude."
+            )
+
+            XCTAssertGreaterThan(
+                lowDampingSignalPeak,
+                0.0,
+                "Low-damping collective signal has zero amplitude."
+            )
+
+            // --------------------------------------------------------
+            // ASSERT: Natural frequency is measurable
+            // --------------------------------------------------------
+
+            XCTAssertGreaterThan(
+                normalFrequency,
+                0.0,
+                "Normal-damping natural frequency must be greater than zero."
+            )
+
+            XCTAssertGreaterThan(
+                lowDampingFrequency,
+                0.0,
+                "Low-damping natural frequency must be greater than zero."
+            )
+
+            // --------------------------------------------------------
+            // ASSERT: Resonant energy is positive
+            // --------------------------------------------------------
+
+            XCTAssertGreaterThan(
+                normalResonantEnergyGeV,
+                minimumResonantEnergyGeV,
+                """
+                Normal-damping resonantModeEnergyGeV must be greater
+                than zero for resonance analysis.
+                """
+            )
+
+            XCTAssertGreaterThan(
+                lowDampingResonantEnergyGeV,
+                minimumResonantEnergyGeV,
+                """
+                Low-damping resonantModeEnergyGeV must be greater
+                than zero for resonance analysis.
+                """
+            )
+
+            // --------------------------------------------------------
+            // ASSERT: Resonant energy cannot exceed collision energy
+            // --------------------------------------------------------
+
+            XCTAssertLessThanOrEqual(
+                normalResonantEnergyGeV,
+                maximumResonantEnergyGeV,
+                """
+                Normal-damping resonant energy exceeds the total
+                available collision energy.
+
+                Resonant energy:
+                    \(normalResonantEnergyGeV) GeV
+
+                Collision energy:
+                    \(maximumResonantEnergyGeV) GeV
+                """
+            )
+
+            XCTAssertLessThanOrEqual(
+                lowDampingResonantEnergyGeV,
+                maximumResonantEnergyGeV,
+                """
+                Low-damping resonant energy exceeds the total
+                available collision energy.
+
+                Resonant energy:
+                    \(lowDampingResonantEnergyGeV) GeV
+
+                Collision energy:
+                    \(maximumResonantEnergyGeV) GeV
+                """
+            )
+
+            // --------------------------------------------------------
+            // Determine whether damping causes a 10x suppression.
+            // --------------------------------------------------------
+
+            guard normalResonantEnergyGeV > 0 else {
+                XCTFail("""
+                Normal-damping resonantModeEnergyGeV is zero.
+
+                The test cannot determine whether damping causes
+                a 10x suppression because there is no measurable
+                resonant energy in the baseline case.
+                """)
+                return
+            }
+
+            guard lowDampingResonantEnergyGeV > 0 else {
+                XCTFail("""
+                Low-damping resonantModeEnergyGeV is zero.
+
+                This indicates that the problem may occur before
+                resonant energy calculation, possibly in the
+                collective signal or frequency analysis.
+                """)
+                return
+            }
+
+            let resonanceRatio =
+                lowDampingResonantEnergyGeV /
+                normalResonantEnergyGeV
+
+            // --------------------------------------------------------
+            // Resonance ratio output
+            // --------------------------------------------------------
+
+            print("""
+            ========================================================
+            RESONANCE ENERGY RATIO
+            ========================================================
+
+            Low damping / normal damping:
                 \(resonanceRatio)x
-            """
-        )
-    }
+
+            Acceptable range:
+                < 10x
+
+            ========================================================
+            """)
+
+            // --------------------------------------------------------
+            // ASSERT: Damping does not create >=10x suppression
+            // --------------------------------------------------------
+
+            XCTAssertLessThan(
+                resonanceRatio,
+                10.0,
+                """
+                Dissipation appears to suppress resonantModeEnergyGeV
+                by at least 10x.
+
+                Normal damping:
+                    \(normalResonantEnergyGeV) GeV
+
+                Low damping:
+                    \(lowDampingResonantEnergyGeV) GeV
+
+                Ratio:
+                    \(resonanceRatio)x
+                """
+            )
+        }
 
 
     // MARK: - Test: Energy accounting
