@@ -1755,6 +1755,7 @@ final class QRTLSimulation: ObservableObject {
         updateEnergyBalance()
         latticeExcited = totalDeposited > 0
 
+        /*
         print("""
         ====================================================
         INITIAL LATTICE EXCITATION
@@ -1766,6 +1767,7 @@ final class QRTLSimulation: ObservableObject {
         Energy radius: \(String(format: "%.4f", energyRadius))
         ====================================================
         """)
+         */
     }
     private func applyProtonCollision(
         kineticEnergyJ: Double,
