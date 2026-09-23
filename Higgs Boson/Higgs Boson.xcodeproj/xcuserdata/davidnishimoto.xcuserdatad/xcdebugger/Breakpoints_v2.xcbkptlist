@@ -40,7 +40,7 @@
          BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
          <BreakpointContent
             uuid = "8B179CB8-3970-42C6-B957-7047B1FEECA3"
-            shouldBeEnabled = "Yes"
+            shouldBeEnabled = "No"
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "Higgs BosonTests/ResonantModeDissipationTests.swift"
@@ -50,6 +50,52 @@
             endingLineNumber = "35"
             landmarkName = "testDissipationDoesNotSuppressResonantModeByTenfold()"
             landmarkType = "7">
+         </BreakpointContent>
+      </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            uuid = "9DD60480-ABD6-4C15-8EFA-C8AE8A833A40"
+            shouldBeEnabled = "Yes"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "Higgs Boson/QRTLSimulation.swift"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "2241"
+            endingLineNumber = "2241"
+            landmarkName = "initializeCollision(kineticEnergyJ:collisionPosition:)"
+            landmarkType = "7">
+            <Locations>
+               <Location
+                  uuid = "9DD60480-ABD6-4C15-8EFA-C8AE8A833A40 - 4dd7f321b7e727fb"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "Higgs_Boson.QRTLSimulation.applyProtonCollision(kineticEnergyJ: Swift.Double, collisionCenter: Swift.SIMD3&lt;Swift.Float&gt;) -&gt; ()"
+                  moduleName = "Higgs Boson.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/davidnishimoto/Desktop/Higgs-Boson/Higgs%20Boson/Higgs%20Boson/QRTLSimulation.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "2243"
+                  endingLineNumber = "2243">
+               </Location>
+               <Location
+                  uuid = "9DD60480-ABD6-4C15-8EFA-C8AE8A833A40 - 1d0e1063bb0a9363"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "Higgs_Boson.QRTLSimulation.initializeCollision(kineticEnergyJ: Swift.Double, collisionPosition: Swift.Int) -&gt; ()"
+                  moduleName = "Higgs Boson.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/davidnishimoto/Desktop/Higgs-Boson/Higgs%20Boson/Higgs%20Boson/QRTLSimulation.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "2241"
+                  endingLineNumber = "2241">
+               </Location>
+            </Locations>
          </BreakpointContent>
       </BreakpointProxy>
    </Breakpoints>

@@ -1817,42 +1817,62 @@ final class QRTLSimulation: ObservableObject {
         let dt = QRTLConstants.timeStep
 
         // --------------------------------------------------------
-        // 1. RESET COLLISION STATE
+        // 1. PROTON COLLISION ENERGY
+        // --------------------------------------------------------
+        //
+        // Classical kinetic energy:
+        //
+        // KE = 1/2 m v²
+        //
+        // Use the proton mass and incoming proton velocity.
+        //
+
+        let protonMassKg = QRTLConstants.protonMassKg
+        let protonVelocityMPerS = QRTLConstants.protonVelocityMPerS
+
+        let protonKineticEnergyJ =
+            0.5 *
+            protonMassKg *
+            protonVelocityMPerS *
+            protonVelocityMPerS
+
+        // --------------------------------------------------------
+        // 2. RESET COLLISION STATE
         // --------------------------------------------------------
 
         initialCollisionEnergy = 0.0
         ejectedEnergy = 0.0
         dissipatedEnergy = 0.0
+
         resonantModeEnergyJ = 0.0
         resonantModeEnergyGeV = 0.0
 
         collectiveSignal.removeAll()
+
         naturalFrequency = 0.0
         resonancePersistenceTime = 0.0
 
+        // Store the actual incoming proton energy
+        collisionKineticEnergyJ = protonKineticEnergyJ
+        initialCollisionEnergy = protonKineticEnergyJ
+
         // --------------------------------------------------------
-        // 2. INITIALIZE THE ACTUAL COLLISION
+        // 3. INITIALIZE THE ACTUAL COLLISION
         // --------------------------------------------------------
-        //
-        // This must be the same initialization used by the
-        // real collision path. updateCollisionDynamics() alone
-        // should not be expected to create the incoming energy
-        // if that energy is normally established elsewhere.
-        //
 
         initializeCollision(
-            kineticEnergyJ: collisionKineticEnergyJ,
+            kineticEnergyJ: protonKineticEnergyJ,
             collisionPosition: cells.count / 2
         )
 
         // --------------------------------------------------------
-        // 3. RUN COLLISION DYNAMICS
+        // 4. RUN COLLISION DYNAMICS
         // --------------------------------------------------------
 
         updateCollisionDynamics(dt: dt)
 
         // --------------------------------------------------------
-        // 4. PROPAGATE COLLISION ENERGY INTO THE LATTICE
+        // 5. PROPAGATE COLLISION ENERGY INTO THE LATTICE
         // --------------------------------------------------------
 
         let numberOfSteps = QRTLConstants.sampleCount
@@ -1865,13 +1885,13 @@ final class QRTLSimulation: ObservableObject {
         }
 
         // --------------------------------------------------------
-        // 5. ANALYZE THE COMPLETE COLLECTIVE SIGNAL
+        // 6. ANALYZE THE COMPLETE COLLECTIVE SIGNAL
         // --------------------------------------------------------
 
         analyzeNaturalFrequency()
 
         // --------------------------------------------------------
-        // 6. IDENTIFY THE RESONANT MODE
+        // 7. IDENTIFY THE RESONANT MODE
         // --------------------------------------------------------
 
         _ = identifyResonantMode(
@@ -1879,13 +1899,13 @@ final class QRTLSimulation: ObservableObject {
         )
 
         // --------------------------------------------------------
-        // 7. EVALUATE HIGGS-LIKE MODE
+        // 8. EVALUATE HIGGS-LIKE MODE
         // --------------------------------------------------------
 
         evaluateHiggsLikeMode()
 
         // --------------------------------------------------------
-        // 8. UPDATE RESONANCE PERSISTENCE
+        // 9. UPDATE RESONANCE PERSISTENCE
         // --------------------------------------------------------
 
         updateResonancePersistence(
@@ -1894,36 +1914,45 @@ final class QRTLSimulation: ObservableObject {
         )
 
         // --------------------------------------------------------
-        // 9. DEBUG
+        // 10. DEBUG
         // --------------------------------------------------------
 
         print("""
         
         ========================================================
-        COLLISION TEST DEBUG
+        PROTON COLLISION TEST DEBUG
         ========================================================
-        
+
+        Proton mass:
+            \(protonMassKg) kg
+
+        Proton velocity:
+            \(protonVelocityMPerS) m/s
+
+        Proton kinetic energy:
+            \(protonKineticEnergyJ) J
+
         Initial collision energy:
             \(initialCollisionEnergy) J
-        
+
         Lattice energy:
             \(totalMechanicalLatticeEnergy()) J
-        
+
         Ejected energy:
             \(ejectedEnergy) J
-        
+
         Dissipated energy:
             \(dissipatedEnergy) J
-        
+
         Collective signal samples:
             \(collectiveSignal.count)
-        
+
         Natural frequency:
             \(naturalFrequency) Hz
-        
+
         Resonant mode energy:
             \(resonantModeEnergyGeV) GeV
-        
+
         ========================================================
         """)
 
@@ -1963,6 +1992,10 @@ final class QRTLSimulation: ObservableObject {
         // --------------------------------------------------------
 
         for index in cells.indices {
+
+            // Fixed lattice position is NOT changed.
+            // position is a let constant in QRTLCell.
+
             cells[index].displacement = .zero
             cells[index].velocity = .zero
 
@@ -1977,7 +2010,6 @@ final class QRTLSimulation: ObservableObject {
             cells[index].modeCoordinate = 0.0
             cells[index].modeVelocity = 0.0
             cells[index].modeAcceleration = 0.0
-
             cells[index].modeDirection = .zero
 
             cells[index].previousPhase = 0.0
@@ -1988,13 +2020,8 @@ final class QRTLSimulation: ObservableObject {
         }
 
         // --------------------------------------------------------
-        // COLLISION LOCATION
+        // VALIDATE LATTICE
         // --------------------------------------------------------
-
-        let centerIndex = min(
-            max(collisionPosition, 0),
-            max(cells.count - 1, 0)
-        )
 
         guard !cells.isEmpty else {
             collisionActive = false
@@ -2002,33 +2029,51 @@ final class QRTLSimulation: ObservableObject {
         }
 
         // --------------------------------------------------------
-        // LOCALIZE COLLISION ENERGY
-        //
-        // The collision does not assign a frequency or wavelength.
-        // It supplies energy to the lattice. The resulting collective
-        // response is analyzed afterward to determine its natural mode.
+        // COLLISION LOCATION
         // --------------------------------------------------------
 
-        let radius = max(QRTLConstants.collisionRadius, 1.0)
+        let centerIndex = min(
+            max(collisionPosition, 0),
+            cells.count - 1
+        )
+
+        // --------------------------------------------------------
+        // LOCALIZE COLLISION ENERGY
+        // --------------------------------------------------------
+
+        let radius = max(
+            QRTLConstants.collisionRadius,
+            1.0
+        )
 
         var totalWeight = 0.0
-        var weights = [Double](repeating: 0.0, count: cells.count)
+
+        var weights = [Double](
+            repeating: 0.0,
+            count: cells.count
+        )
+
+        let centerX = Double(
+            cells[centerIndex].position.x
+        )
+
+        let centerY = Double(
+            cells[centerIndex].position.y
+        )
 
         for index in cells.indices {
 
-            let dx = Double(cells[index].position.x)
-            let dy = Double(cells[index].position.y)
+            let dx =
+                Double(cells[index].position.x) - centerX
 
-            let cx = Double(cells[centerIndex].position.x)
-            let cy = Double(cells[centerIndex].position.y)
+            let dy =
+                Double(cells[index].position.y) - centerY
 
-            let distance = sqrt(
-                (dx - cx) * (dx - cx) +
-                (dy - cy) * (dy - cy)
-            )
+            let distanceSquared =
+                dx * dx + dy * dy
 
             let weight = exp(
-                -(distance * distance) /
+                -distanceSquared /
                 (2.0 * radius * radius)
             )
 
@@ -2042,64 +2087,81 @@ final class QRTLSimulation: ObservableObject {
         }
 
         // --------------------------------------------------------
-        // CONVERT COLLISION ENERGY INTO INITIAL LATTICE EXCITATION
+        // CONVERT COLLISION ENERGY INTO LATTICE DISPLACEMENT
+        //
+        // E = 1/2 k x²
+        //
+        // x = sqrt(2E/k)
         // --------------------------------------------------------
+
+        let stiffness = max(
+            QRTLConstants.effectiveStiffnessNPerM,
+            Double.leastNonzeroMagnitude
+        )
 
         for index in cells.indices {
 
-            let normalizedWeight = weights[index] / totalWeight
-            let localEnergy = collisionKineticEnergyJ * normalizedWeight
+            let normalizedWeight =
+                weights[index] / totalWeight
 
-            cells[index].localEnergy = localEnergy
+            let localEnergy =
+                collisionKineticEnergyJ * normalizedWeight
 
-            // Convert localized energy into displacement amplitude.
-            //
-            // E = 1/2 k x²
-            //
-            // Therefore:
-            //
-            // x = sqrt(2E/k)
+            cells[index].localEnergy =
+                localEnergy
 
-            let stiffness = max(
-                QRTLConstants.effectiveStiffnessNPerM,
-                Double.leastNonzeroMagnitude
-            )
+            let displacementMagnitude =
+                sqrt(
+                    max(
+                        2.0 * localEnergy / stiffness,
+                        0.0
+                    )
+                )
 
-            let displacement = sqrt(
-                max(2.0 * localEnergy / stiffness, 0.0)
-            )
-
+            // Radial collision disturbance.
             let direction: Double =
                 index == centerIndex ? 1.0 : 0.5
 
+            let displacement =
+                displacementMagnitude * direction
+
+            // Dynamic displacement.
+            cells[index].displacement.x =
+                Float(displacement)
+
+            // Store amplitude consistently with displacement.
             cells[index].amplitude =
-                displacement * direction
+                displacement
 
-            cells[index].displacement.x = Float(
-                displacement * direction
-            )
-
+            // Local strain.
             cells[index].localStrain =
                 displacement /
-                max(QRTLConstants.cellSpacing, Double.leastNonzeroMagnitude)
+                max(
+                    QRTLConstants.cellSpacing,
+                    Double.leastNonzeroMagnitude
+                )
         }
 
         // --------------------------------------------------------
         // INITIAL COLLISION SIGNAL
         // --------------------------------------------------------
 
-        let initialSignal = cells.reduce(0.0) {
-            $0 + Double($1.amplitude)
-        }
+        let initialSignal =
+            cells.reduce(0.0) { total, cell in
+                total + Double(
+                    simd_length(cell.displacement)
+                )
+            }
 
-        collectiveSignal.append(initialSignal)
+        collectiveSignal.append(
+            initialSignal
+        )
 
         // --------------------------------------------------------
-        // INITIAL NATURAL FREQUENCY
+        // INITIAL MECHANICAL REFERENCE
         //
-        // This is an initial mechanical reference only.
-        // The actual collision resonance is determined from the
-        // time-domain collective response after propagation.
+        // This does not assign the collision wavelength.
+        // The propagated collective signal is analyzed later.
         // --------------------------------------------------------
 
         let mass = max(
@@ -2107,14 +2169,75 @@ final class QRTLSimulation: ObservableObject {
             Double.leastNonzeroMagnitude
         )
 
-        let stiffness = QRTLConstants.effectiveStiffnessNPerM
-
-        naturalAngularFrequency = sqrt(
-            stiffness / mass
-        )
+        naturalAngularFrequency =
+            sqrt(stiffness / mass)
 
         naturalFrequencyHz =
-            naturalAngularFrequency / (2.0 * Double.pi)
+            naturalAngularFrequency /
+            (2.0 * Double.pi)
+
+        // --------------------------------------------------------
+        // DEBUG VALUES
+        // --------------------------------------------------------
+
+        let initializedEnergy =
+            cells.reduce(0.0) { total, cell in
+                total + cell.localEnergy
+            }
+
+        let initializedDisplacement =
+            cells.reduce(0.0) { total, cell in
+                total + Double(
+                    simd_length(cell.displacement)
+                )
+            }
+
+        let centerCell =
+            cells[centerIndex]
+
+        print("""
+        
+        ========================================================
+        COLLISION INITIALIZATION DEBUG
+        ========================================================
+
+        Collision kinetic energy:
+            \(collisionKineticEnergyJ) J
+
+        Localized lattice energy:
+            \(initializedEnergy) J
+
+        Energy ratio:
+            \(collisionKineticEnergyJ > 0.0
+                ? initializedEnergy / collisionKineticEnergyJ
+                : 0.0)
+
+        Total displacement:
+            \(initializedDisplacement)
+
+        Initial signal:
+            \(initialSignal)
+
+        Center cell:
+            \(centerIndex)
+
+        Center displacement:
+            \(centerCell.displacement)
+
+        Center local energy:
+            \(centerCell.localEnergy)
+
+        Center strain:
+            \(centerCell.localStrain)
+
+        Natural angular frequency:
+            \(naturalAngularFrequency)
+
+        Natural frequency:
+            \(naturalFrequencyHz) Hz
+
+        ========================================================
+        """)
     }
     private func applyProtonCollision(
         kineticEnergyJ: Double,
