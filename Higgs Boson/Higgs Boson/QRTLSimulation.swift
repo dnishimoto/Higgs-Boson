@@ -7,14 +7,30 @@ import simd
 import Combine
 
 final class QRTLSimulation: ObservableObject {
+    @Published var collisionActive: Bool = false
+    @Published var collisionCompleted: Bool = false
+
     var collectiveSignal: [Double] = []
+
+    var naturalAngularFrequency: Double = 0.0
+    var naturalFrequencyHz: Double = 0.0
+
+    var resonantModeAmplitude: Double = 0.0
+    var resonantModeEnergy: Double = 0.0
+
+    var higgsLikeModeDetected: Bool = false
+    var resonancePersistence: Double = 0.0
+    var ejectedEnergy: Double = 0.0
+    var dissipatedEnergy: Double = 0.0
+    var initialCollisionEnergy: Double = 0.0
+    private var testDampingOverride: Double? = nil
     
     private var ejectedUpQuarks: [EjectedUpQuark] = []
 
+    var naturalFrequency: Double = 0.0
     private var ejectedEnergyJ: Double = 0.0
     private var stableShellEnergyJ: Double = 0.0
 
-    private var naturalFrequencyHz: Double = 0.0
     private var resonantModeEnergyJ: Double = 0.0
 
     private var resonancePersistenceTime: Double = 0.0
@@ -71,7 +87,6 @@ final class QRTLSimulation: ObservableObject {
     @Published var averageStrain = 0.0
     @Published var averageTwist = 0.0
     @Published var latticeEnergy = 0.0
-    @Published var resonantModeEnergy = 0.0
     @Published var resonantFrequencyHz = 0.0
     @Published var resonantAngularFrequency = 0.0
     @Published var resonantWavelengthMeters = 0.0
@@ -247,6 +262,30 @@ final class QRTLSimulation: ObservableObject {
                            position: SIMD3(xB, 0, 0.18), velocity: .zero,
                            originalPosition: SIMD3(xB, 0, 0.18))
         ]
+    }
+    private func analyzeNaturalFrequency() {
+
+        guard collectiveSignal.count >= 3 else {
+            naturalFrequency = 0.0
+            return
+        }
+
+        let mean =
+            collectiveSignal.reduce(0.0, +) /
+            Double(collectiveSignal.count)
+
+        let centered =
+            collectiveSignal.map { $0 - mean }
+
+        let peak =
+            centered.map { abs($0) }.max() ?? 0.0
+
+        guard peak > 0.0 else {
+            naturalFrequency = 0.0
+            return
+        }
+
+        // Frequency analysis goes here.
     }
     private func identifyResonantMode(
         naturalFrequency: Double
@@ -1769,6 +1808,314 @@ final class QRTLSimulation: ObservableObject {
         """)
          */
     }
+
+    func runCollisionForTesting(damping testDamping: Double) {
+
+        // Apply temporary damping used only by the test
+        testDampingOverride = testDamping
+
+        let dt = QRTLConstants.timeStep
+
+        // --------------------------------------------------------
+        // 1. RESET COLLISION STATE
+        // --------------------------------------------------------
+
+        initialCollisionEnergy = 0.0
+        ejectedEnergy = 0.0
+        dissipatedEnergy = 0.0
+        resonantModeEnergyJ = 0.0
+        resonantModeEnergyGeV = 0.0
+
+        collectiveSignal.removeAll()
+        naturalFrequency = 0.0
+        resonancePersistenceTime = 0.0
+
+        // --------------------------------------------------------
+        // 2. INITIALIZE THE ACTUAL COLLISION
+        // --------------------------------------------------------
+        //
+        // This must be the same initialization used by the
+        // real collision path. updateCollisionDynamics() alone
+        // should not be expected to create the incoming energy
+        // if that energy is normally established elsewhere.
+        //
+
+        initializeCollision(
+            kineticEnergyJ: collisionKineticEnergyJ,
+            collisionPosition: cells.count / 2
+        )
+
+        // --------------------------------------------------------
+        // 3. RUN COLLISION DYNAMICS
+        // --------------------------------------------------------
+
+        updateCollisionDynamics(dt: dt)
+
+        // --------------------------------------------------------
+        // 4. PROPAGATE COLLISION ENERGY INTO THE LATTICE
+        // --------------------------------------------------------
+
+        let numberOfSteps = QRTLConstants.sampleCount
+
+        for _ in 0..<numberOfSteps {
+
+            updateLattice(dt: dt)
+
+            recordCollectiveSignal()
+        }
+
+        // --------------------------------------------------------
+        // 5. ANALYZE THE COMPLETE COLLECTIVE SIGNAL
+        // --------------------------------------------------------
+
+        analyzeNaturalFrequency()
+
+        // --------------------------------------------------------
+        // 6. IDENTIFY THE RESONANT MODE
+        // --------------------------------------------------------
+
+        _ = identifyResonantMode(
+            naturalFrequency: naturalFrequency
+        )
+
+        // --------------------------------------------------------
+        // 7. EVALUATE HIGGS-LIKE MODE
+        // --------------------------------------------------------
+
+        evaluateHiggsLikeMode()
+
+        // --------------------------------------------------------
+        // 8. UPDATE RESONANCE PERSISTENCE
+        // --------------------------------------------------------
+
+        updateResonancePersistence(
+            naturalFrequency: naturalFrequency,
+            dt: dt
+        )
+
+        // --------------------------------------------------------
+        // 9. DEBUG
+        // --------------------------------------------------------
+
+        print("""
+        
+        ========================================================
+        COLLISION TEST DEBUG
+        ========================================================
+        
+        Initial collision energy:
+            \(initialCollisionEnergy) J
+        
+        Lattice energy:
+            \(totalMechanicalLatticeEnergy()) J
+        
+        Ejected energy:
+            \(ejectedEnergy) J
+        
+        Dissipated energy:
+            \(dissipatedEnergy) J
+        
+        Collective signal samples:
+            \(collectiveSignal.count)
+        
+        Natural frequency:
+            \(naturalFrequency) Hz
+        
+        Resonant mode energy:
+            \(resonantModeEnergyGeV) GeV
+        
+        ========================================================
+        """)
+
+        // Remove test override
+        testDampingOverride = nil
+    }
+    private func initializeCollision(
+        kineticEnergyJ: Double,
+        collisionPosition: Int
+    ) {
+        // --------------------------------------------------------
+        // RESET COLLISION STATE
+        // --------------------------------------------------------
+
+        collisionActive = true
+        collisionCompleted = false
+
+        collectiveSignal.removeAll(keepingCapacity: true)
+
+        naturalAngularFrequency = 0.0
+        naturalFrequencyHz = 0.0
+
+        resonantModeAmplitude = 0.0
+        resonantModeEnergy = 0.0
+
+        higgsLikeModeDetected = false
+        resonancePersistence = 0.0
+
+        // --------------------------------------------------------
+        // STORE COLLISION ENERGY
+        // --------------------------------------------------------
+
+        collisionKineticEnergyJ = max(kineticEnergyJ, 0.0)
+
+        // --------------------------------------------------------
+        // CLEAR PREVIOUS LATTICE MOTION
+        // --------------------------------------------------------
+
+        for index in cells.indices {
+            cells[index].displacement = .zero
+            cells[index].velocity = .zero
+
+            cells[index].twist = 0.0
+            cells[index].phase = 0.0
+            cells[index].amplitude = 0.0
+
+            cells[index].localEnergy = 0.0
+            cells[index].localStrain = 0.0
+            cells[index].couplingState = 0.0
+
+            cells[index].modeCoordinate = 0.0
+            cells[index].modeVelocity = 0.0
+            cells[index].modeAcceleration = 0.0
+
+            cells[index].modeDirection = .zero
+
+            cells[index].previousPhase = 0.0
+            cells[index].unwrappedPhase = 0.0
+
+            cells[index].borlagrinoFlow = .zero
+            cells[index].charge = 0.0
+        }
+
+        // --------------------------------------------------------
+        // COLLISION LOCATION
+        // --------------------------------------------------------
+
+        let centerIndex = min(
+            max(collisionPosition, 0),
+            max(cells.count - 1, 0)
+        )
+
+        guard !cells.isEmpty else {
+            collisionActive = false
+            return
+        }
+
+        // --------------------------------------------------------
+        // LOCALIZE COLLISION ENERGY
+        //
+        // The collision does not assign a frequency or wavelength.
+        // It supplies energy to the lattice. The resulting collective
+        // response is analyzed afterward to determine its natural mode.
+        // --------------------------------------------------------
+
+        let radius = max(QRTLConstants.collisionRadius, 1.0)
+
+        var totalWeight = 0.0
+        var weights = [Double](repeating: 0.0, count: cells.count)
+
+        for index in cells.indices {
+
+            let dx = Double(cells[index].position.x)
+            let dy = Double(cells[index].position.y)
+
+            let cx = Double(cells[centerIndex].position.x)
+            let cy = Double(cells[centerIndex].position.y)
+
+            let distance = sqrt(
+                (dx - cx) * (dx - cx) +
+                (dy - cy) * (dy - cy)
+            )
+
+            let weight = exp(
+                -(distance * distance) /
+                (2.0 * radius * radius)
+            )
+
+            weights[index] = weight
+            totalWeight += weight
+        }
+
+        guard totalWeight > 0.0 else {
+            collisionActive = false
+            return
+        }
+
+        // --------------------------------------------------------
+        // CONVERT COLLISION ENERGY INTO INITIAL LATTICE EXCITATION
+        // --------------------------------------------------------
+
+        for index in cells.indices {
+
+            let normalizedWeight = weights[index] / totalWeight
+            let localEnergy = collisionKineticEnergyJ * normalizedWeight
+
+            cells[index].localEnergy = localEnergy
+
+            // Convert localized energy into displacement amplitude.
+            //
+            // E = 1/2 k x²
+            //
+            // Therefore:
+            //
+            // x = sqrt(2E/k)
+
+            let stiffness = max(
+                QRTLConstants.effectiveStiffnessNPerM,
+                Double.leastNonzeroMagnitude
+            )
+
+            let displacement = sqrt(
+                max(2.0 * localEnergy / stiffness, 0.0)
+            )
+
+            let direction: Double =
+                index == centerIndex ? 1.0 : 0.5
+
+            cells[index].amplitude =
+                displacement * direction
+
+            cells[index].displacement.x = Float(
+                displacement * direction
+            )
+
+            cells[index].localStrain =
+                displacement /
+                max(QRTLConstants.cellSpacing, Double.leastNonzeroMagnitude)
+        }
+
+        // --------------------------------------------------------
+        // INITIAL COLLISION SIGNAL
+        // --------------------------------------------------------
+
+        let initialSignal = cells.reduce(0.0) {
+            $0 + Double($1.amplitude)
+        }
+
+        collectiveSignal.append(initialSignal)
+
+        // --------------------------------------------------------
+        // INITIAL NATURAL FREQUENCY
+        //
+        // This is an initial mechanical reference only.
+        // The actual collision resonance is determined from the
+        // time-domain collective response after propagation.
+        // --------------------------------------------------------
+
+        let mass = max(
+            QRTLConstants.effectiveMassKg,
+            Double.leastNonzeroMagnitude
+        )
+
+        let stiffness = QRTLConstants.effectiveStiffnessNPerM
+
+        naturalAngularFrequency = sqrt(
+            stiffness / mass
+        )
+
+        naturalFrequencyHz =
+            naturalAngularFrequency / (2.0 * Double.pi)
+    }
     private func applyProtonCollision(
         kineticEnergyJ: Double,
         collisionCenter: SIMD3<Float>
@@ -2216,7 +2563,7 @@ final class QRTLSimulation: ObservableObject {
         return e.isFinite ? max(0, e) : 0
     }
 
-    private func totalMechanicalLatticeEnergy() -> Double {
+    func totalMechanicalLatticeEnergy() -> Double {
         cells.reduce(0.0) { $0 + physicalEnergy(displacement: $1.displacement, velocity: $1.velocity) }
     }
 

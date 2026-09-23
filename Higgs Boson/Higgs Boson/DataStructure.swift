@@ -95,12 +95,14 @@ struct QRTLSpectralResult {
 import Foundation
 
 enum QRTLConstants {
+    static let cellSpacing: Double = 1.0
+    static let collisionRadius: Double = 3.0
     static let minimumCoherence: Double = 0.70
     static let minimumResonanceDuration: Double = 1.0
     static let stableEnergyTolerance = 0.001
     static let higgsEnergyTolerance = 0.05
     static let higgsReferenceEnergyJ = 2.00e-8
-    static let sampleCount = 4096
+    static let sampleCount = 100
     static let phaseStiffness: Double = 0.03
     static let twistStiffness: Double = 0.08
     static let upQuarkMassKg = 3.85e-30
