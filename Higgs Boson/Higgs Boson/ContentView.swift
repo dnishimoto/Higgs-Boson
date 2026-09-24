@@ -27,17 +27,12 @@
 
  */
 import SwiftUI
-
 import SceneKit
-
 import simd
-
 import Combine
 
 // ============================================================
-
 // MARK: - CONTENT VIEW
-
 // ============================================================
 
 struct ContentView: View {
@@ -49,523 +44,268 @@ struct ContentView: View {
         ZStack(alignment: .top) {
 
             Color.black
-
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
 
+                // ========================================================
+                // 3D SCENE
+                // ========================================================
+
                 SceneView(
-
                     scene: simulation.scene,
-
                     pointOfView: simulation.cameraNode,
-
                     options: [
-
                         .allowsCameraControl,
-
                         .autoenablesDefaultLighting
-
                     ]
-
                 )
-
                 .frame(maxWidth: .infinity)
-
                 .frame(height: 470)
+
+                // ========================================================
+                // PHYSICS INFORMATION
+                // ========================================================
 
                 ScrollView {
 
                     VStack(spacing: 10) {
 
                         collisionCard
-
-                        qrtlShellCard
-
-                        latticeCard
-
-                        energyCard
-
-                        higgsCard
+                        shellEnergyCard
+                        resonanceCard
 
                         Button("Reset Simulation") {
-
                             simulation.reset()
-
                         }
-
                         .buttonStyle(.borderedProminent)
-
                         .padding(.vertical, 8)
-
                     }
-
                     .padding()
-
                 }
-
                 .background(Color.black)
-
             }
-
         }
-
         .onAppear {
-
             simulation.start()
-
         }
-
         .onDisappear {
-
             simulation.stop()
-
         }
-
     }
 
     // ========================================================
-
     // MARK: - COLLISION CARD
-
     // ========================================================
 
     private var collisionCard: some View {
 
         monitorCard(
-
             title: "COLLISION",
-
             symbol: "bolt.fill"
-
         ) {
 
             HStack {
 
                 valueRow(
-
                     label: "Proton A",
-
                     value: simulation.protonAState
-
                 )
 
                 Spacer()
 
                 valueRow(
-
                     label: "Distance",
-
                     value: String(
-
                         format: "%.3f",
-
                         simulation.protonDistance
-
                     )
-
                 )
 
                 Spacer()
 
                 valueRow(
-
                     label: "Proton B",
-
                     value: simulation.protonBState
-
                 )
-
             }
 
             Divider()
+                .background(Color.gray)
 
+            metricRow(
+                label: "Collision Energy",
+                value: "\(formatScientific(simulation.collisionKineticEnergyJ)) J"
+            )
+
+            metricRow(
+                label: "Collision Energy",
+                value: "\(formatGeV(simulation.collisionKineticEnergyJ)) GeV"
+            )
+
+            Divider()
                 .background(Color.gray)
 
             statusRow(
-
                 label: "Collision",
-
                 status: simulation.collisionOccurred
-
                     ? "OCCURRED"
-
                     : "APPROACHING",
-
                 active: simulation.collisionOccurred
-
             )
-
         }
-
     }
 
     // ========================================================
-
-    // MARK: - QRTL SHELL CARD
-
+    // MARK: - QRTL SHELL ENERGY CARD
     // ========================================================
 
-    private var qrtlShellCard: some View {
+    private var shellEnergyCard: some View {
 
         monitorCard(
-
-            title: "QRTL SHELL",
-
+            title: "QRTL SHELL ENERGY",
             symbol: "circle.hexagongrid.fill"
-
         ) {
 
-            metricRow(
+            // Primary shell-energy indicator
 
+            Text(
+                "\(formatGeV(simulation.energyState.shellEnergy)) GeV"
+            )
+            .font(
+                .system(
+                    size: 30,
+                    weight: .bold,
+                    design: .monospaced
+                )
+            )
+            .foregroundColor(.cyan)
+            .frame(maxWidth: .infinity)
+
+            Text("Shell Energy")
+                .font(.caption)
+                .foregroundColor(.gray)
+                .frame(maxWidth: .infinity)
+
+            Divider()
+                .background(Color.gray)
+
+            metricRow(
                 label: "Shell Energy",
-
-                value: "\(format(simulation.energyState.shellEnergy))"
-
+                value: "\(formatScientific(simulation.energyState.shellEnergy)) J"
             )
 
             metricRow(
-
                 label: "Equilibrium Energy",
-
-                value: "\(format(simulation.energyState.equilibriumShellEnergy))"
-
+                value: "\(formatScientific(simulation.energyState.equilibriumShellEnergy)) J"
             )
 
             metricRow(
-
-                label: "Instability",
-
-                value: "\(formatPercent(simulation.energyState.shellInstability))"
-
-            )
-
-            metricRow(
-
                 label: "Deformation",
-
-                value: "\(format(simulation.energyState.deformation))"
-
+                value: format(simulation.energyState.deformation)
             )
-            metricRow(label: "Borlagrino |flow|", value: format(simulation.averageBorlagrinoMagnitude))
-            metricRow(label: "Net Emergent Charge", value: format(simulation.netEmergentCharge))
-            metricRow(label: "Charge Asymmetry", value: formatPercent(simulation.chargeAsymmetry))
-            Divider()
 
+            metricRow(
+                label: "Instability",
+                value: formatPercent(simulation.energyState.shellInstability)
+            )
+
+            Divider()
                 .background(Color.gray)
 
             statusRow(
-
                 label: "Shell State",
-
                 status: simulation.energyState.isUnstable
-
                     ? "UNSTABLE"
-
                     : "STABLE",
-
                 active: simulation.energyState.isUnstable
-
             )
-
         }
-
     }
 
     // ========================================================
-
-    // MARK: - LATTICE CARD
-
+    // MARK: - RESONANT MODE CARD
     // ========================================================
 
-    private var latticeCard: some View {
+    private var resonanceCard: some View {
 
         monitorCard(
-
-            title: "QUARK-LATTICE CA",
-
-            symbol: "square.grid.3x3.fill"
-
-        ) {
-
-            metricRow(
-
-                label: "Active Cells",
-
-                value: "\(simulation.activeCellCount)"
-
-            )
-
-            metricRow(
-
-                label: "Collective Coherence",
-
-                value: formatPercent(simulation.collectiveCoherence)
-
-            )
-
-            metricRow(
-
-                label: "Average Strain",
-
-                value: format(simulation.averageStrain)
-
-            )
-
-            metricRow(
-
-                label: "Average Twist",
-
-                value: format(simulation.averageTwist)
-
-            )
-
-            metricRow(
-
-                label: "Collective Amplitude",
-
-                value: format(simulation.collectiveAmplitude)
-
-            )
-
-            Divider()
-
-                .background(Color.gray)
-
-            statusRow(
-
-                label: "Lattice State",
-
-                status: simulation.latticeExcited
-
-                    ? "EXCITED"
-
-                    : "EQUILIBRIUM",
-
-                active: simulation.latticeExcited
-
-            )
-
-        }
-
-    }
-
-    // ========================================================
-
-    // MARK: - ENERGY CARD
-
-    // ========================================================
-
-    private var energyCard: some View {
-
-        monitorCard(
-
-            title: "ENERGY",
-
+            title: "RESONANT MODE",
             symbol: "waveform.path.ecg"
-
         ) {
 
-            metricRow(
+            // Primary resonant mass-energy indicator
 
-                label: "Formation Threshold",
-
-                value: "\(format(simulation.formationThresholdEnergy))"
-
+            Text(
+                "\(formatGeV(simulation.resonantModeEnergy)) GeV"
             )
-
-            metricRow(
-
-                label: "Lattice Energy",
-
-                value: "\(format(simulation.latticeEnergy))"
-
+            .font(
+                .system(
+                    size: 30,
+                    weight: .bold,
+                    design: .monospaced
+                )
             )
+            .foregroundColor(.purple)
+            .frame(maxWidth: .infinity)
+
+            Text("Resonant Mass-Energy")
+                .font(.caption)
+                .foregroundColor(.gray)
+                .frame(maxWidth: .infinity)
+
+            Divider()
+                .background(Color.gray)
 
             metricRow(
-
-                label: "Resonant Mode Energy",
-
-                value: "\(format(simulation.resonantModeEnergy))"
-
-            )
-
-            metricRow(
-
-                label: "Energy Concentration",
-
-                value: formatPercent(simulation.energyConcentration)
-
-            )
-
-        }
-
-    }
-
-    // ========================================================
-
-    // MARK: - HIGGS-LIKE MODE CARD
-
-    // ========================================================
-
-    private var higgsCard: some View {
-
-        monitorCard(
-
-            title: "HIGGS-LIKE MODE",
-
-            symbol: "wave.3.right"
-
-        ) {
-
-            metricRow(
-
-                label: "Resonant Mass",
-
-                value: "\(format(simulation.resonantMassGeV)) GeV"
-
-            )
-
-            metricRow(
-
-                label: "Formation Threshold",
-
-                value: "\(format(simulation.formationThresholdEnergy))"
-
-            )
-
-            metricRow(
-
                 label: "Mode Energy",
-
-                value: "\(format(simulation.resonantModeEnergy))"
-
+                value: "\(formatScientific(simulation.resonantModeEnergy)) J"
             )
 
             metricRow(
-
-                label: "Frequency",
-
-                value: "\(formatScientific(simulation.resonantFrequencyHz)) Hz"
-
-            )
-
-            metricRow(
-
-                label: "Angular Frequency",
-
-                value: "\(formatScientific(simulation.resonantAngularFrequency)) rad/s"
-
-            )
-
-            metricRow(
-
-                label: "Wavelength",
-
-                value: "\(formatScientific(simulation.resonantWavelengthMeters)) m"
-
-            )
-
-            metricRow(
-
-                label: "FFT Samples",
-
-                value: "\(simulation.spectralSampleCount) / \(QRTLConstants.spectralSampleCount)"
-
-            )
-
-            metricRow(
-
-                label: "Nyquist Limit",
-
-                value: "\(formatScientific(simulation.spectralNyquistHz)) Hz"
-
-            )
-
-            metricRow(
-
-                label: "Amplitude",
-
-                value: format(simulation.higgsMode.amplitude)
-
-            )
-
-            metricRow(
-
-                label: "Coherence",
-
-                value: formatPercent(simulation.higgsMode.coherence)
-
-            )
-
-            Divider()
-
-                .background(Color.gray)
-
-            metricRow(
-
                 label: "Target",
-
                 value: "125.000 GeV"
-
             )
 
             metricRow(
-
-                label: "Target Frequency",
-
-                value: "\(formatScientific(simulation.targetFrequencyHz)) Hz"
-
-            )
-
-            metricRow(
-
-                label: "Distance",
-
-                value: "\(format(simulation.massDistanceFromTarget)) GeV"
-
+                label: "Distance From Target",
+                value: "\(format(simulation.resonantMassGeV - QRTLConstants.targetHiggsMassGeV)) GeV"
             )
 
             Divider()
-
                 .background(Color.gray)
+
+            metricRow(
+                label: "Frequency",
+                value: "\(formatScientific(simulation.resonantFrequencyHz)) Hz"
+            )
+
+            metricRow(
+                label: "Coherence",
+                value: formatPercent(simulation.higgsMode.coherence)
+            )
 
             statusRow(
-
                 label: "Mode",
-
                 status: simulation.higgsModeStatus,
-
                 active: simulation.higgsMode.active
-
             )
-
         }
-
     }
 
     // ========================================================
-
-    // MARK: - CARD HELPERS
-
+    // MARK: - CARD HELPER
     // ========================================================
 
     private func monitorCard<Content: View>(
-
         title: String,
-
         symbol: String,
-
         @ViewBuilder content: () -> Content
-
     ) -> some View {
 
         VStack(
-
             alignment: .leading,
-
             spacing: 10
-
         ) {
 
             HStack {
@@ -573,191 +313,147 @@ struct ContentView: View {
                 Image(systemName: symbol)
 
                 Text(title)
-
                     .font(.headline)
+                    .fontWeight(.bold)
 
                 Spacer()
-
             }
-
             .foregroundColor(.white)
 
             content()
-
         }
-
         .padding()
-
         .background(
-
             RoundedRectangle(cornerRadius: 12)
-
                 .fill(Color.white.opacity(0.08))
-
         )
-
         .overlay(
-
             RoundedRectangle(cornerRadius: 12)
-
                 .stroke(
-
                     Color.white.opacity(0.15),
-
                     lineWidth: 1
-
                 )
-
         )
-
     }
 
+    // ========================================================
+    // MARK: - ROW HELPERS
+    // ========================================================
+
     private func metricRow(
-
         label: String,
-
         value: String
-
     ) -> some View {
 
         HStack {
 
             Text(label)
-
                 .foregroundColor(.gray)
 
             Spacer()
 
             Text(value)
-
                 .foregroundColor(.white)
-
                 .monospacedDigit()
-
         }
-
         .font(.system(size: 14))
-
     }
 
     private func valueRow(
-
         label: String,
-
         value: String
-
     ) -> some View {
 
         VStack(spacing: 3) {
 
             Text(label)
-
                 .font(.caption)
-
                 .foregroundColor(.gray)
 
             Text(value)
-
                 .font(.system(size: 13))
-
                 .foregroundColor(.white)
-
         }
-
     }
 
     private func statusRow(
-
         label: String,
-
         status: String,
-
         active: Bool
-
     ) -> some View {
 
         HStack {
 
             Text(label)
-
                 .foregroundColor(.gray)
 
             Spacer()
 
             Text(status)
-
                 .fontWeight(.semibold)
-
                 .foregroundColor(
-
                     active ? .green : .orange
-
                 )
-
         }
-
     }
+
+    // ========================================================
+    // MARK: - FORMATTERS
+    // ========================================================
 
     private func format(
-
         _ value: Double
-
     ) -> String {
 
-        String(
-
-            format: "%.6f",
-
-            value
-
-        )
-
-    }
-
-    private func formatPercent(
-
-        _ value: Double
-
-    ) -> String {
-
-        String(
-
-            format: "%.1f%%",
-
-            value * 100.0
-
-        )
-
-    }
-
-    private func formatScientific(
-
-        _ value: Double
-
-    ) -> String {
-
-        guard value.isFinite,
-
-              value > 0
-
-        else {
-
-            return "0"
-
+        guard value.isFinite else {
+            return "—"
         }
 
         return String(
-
-            format: "%.3e",
-
+            format: "%.6f",
             value
-
         )
-
     }
 
+    private func formatGeV(
+        _ energyJ: Double
+    ) -> String {
+
+        guard energyJ.isFinite else {
+            return "—"
+        }
+
+        return String(
+            format: "%.6f",
+            energyJ / QRTLConstants.joulesPerGeV
+        )
+    }
+
+    private func formatPercent(
+        _ value: Double
+    ) -> String {
+
+        guard value.isFinite else {
+            return "—"
+        }
+
+        return String(
+            format: "%.1f%%",
+            value * 100.0
+        )
+    }
+
+    private func formatScientific(
+        _ value: Double
+    ) -> String {
+
+        guard value.isFinite else {
+            return "—"
+        }
+
+        return String(
+            format: "%.3e",
+            value
+        )
+    }
 }
-
-
-
-

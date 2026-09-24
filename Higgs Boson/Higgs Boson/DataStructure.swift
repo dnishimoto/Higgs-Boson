@@ -94,7 +94,12 @@ struct QRTLSpectralResult {
 
 import Foundation
 
+/// QRTLConstants holds fundamental physical and simulation parameters.
+/// Correct mechanical energy injection and spectralSampleInterval synchrony are crucial
+/// for proper simulation and FFT analysis.
+
 enum QRTLConstants {
+    static let shellLifetimeSeconds = 1.0e-22
     static let joulesPerGeV = 1.602176634e-10
 
      static let targetHiggsMassGeV = 125.0
@@ -117,7 +122,7 @@ enum QRTLConstants {
 
      static let spectralSampleCount = 4096
 
-    static let spectralSampleInterval = timeStep
+    static let spectralSampleInterval = timeStep  // Must match simulation physics timestep
      static let spectralSampleRate =
          1.0 / spectralSampleInterval
 
@@ -163,7 +168,7 @@ enum QRTLConstants {
     static let phaseCoupling = 0.12
     static let strainCoupling = 0.06
     static let restoringForce = 0.20
-    static let damping = 0.008
+    static let damping = 0.002
     static let twistRestoring = 0.08
     static let phaseRestoring = 0.03
 
@@ -212,6 +217,7 @@ enum QRTLConstants {
     
 
 }
+
 
 
 
