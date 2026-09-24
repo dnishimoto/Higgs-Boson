@@ -1,12 +1,5 @@
-//
-//  File.swift
-//  Higgs Boson
-//
-//  Created by David Nishimoto on 9/21/26.
-//
-
 import Foundation
-import SwiftUI
+import simd
 
 final class QRTLCollectiveSpectralAnalyzer {
     private(set) var samples: [Double] = []
@@ -31,6 +24,7 @@ final class QRTLCollectiveSpectralAnalyzer {
         }
     }
 
+    @discardableResult
     func analyze(sampleInterval: Double) -> QRTLSpectralResult? {
         guard samples.count >= 32, sampleInterval > 0, sampleInterval.isFinite else { return nil }
         let n = samples.count
@@ -73,5 +67,29 @@ final class QRTLCollectiveSpectralAnalyzer {
         )
         result = value
         return value
+    }
+}
+
+extension QRTLCollectiveSpectralAnalyzer {
+    static func modeProjection(displacement: SIMD3<Float>, velocity: SIMD3<Float>, axis: SIMD3<Float>, omega: Double) -> (Double, Double) {
+        let a = simd_normalize(axis)
+        let dx = Double(displacement.x) * Double(a.x) + Double(displacement.y) * Double(a.y) + Double(displacement.z) * Double(a.z)
+        let vx = Double(velocity.x) * Double(a.x) + Double(velocity.y) * Double(a.y) + Double(velocity.z) * Double(a.z)
+        let phi = atan2(-vx, max(omega, 1e-300) * dx)
+        return (dx, phi)
+    }
+
+    static func singleModeEnergy(x: Double, v: Double, mass: Double, k: Double) -> Double {
+        let ke = 0.5 * mass * v * v
+        let pe = 0.5 * k * x * x
+        let e = ke + pe
+        return e.isFinite ? e : 0.0
+    }
+
+    static func collectiveSample(displacement: SIMD3<Float>, velocity: SIMD3<Float>, axis: SIMD3<Float>, weight: Double) -> (disp: Double, vel: Double) {
+        let a = simd_normalize(axis)
+        let dx = Double(displacement.x) * Double(a.x) + Double(displacement.y) * Double(a.y) + Double(displacement.z) * Double(a.z)
+        let vx = Double(velocity.x) * Double(a.x) + Double(velocity.y) * Double(a.y) + Double(velocity.z) * Double(a.z)
+        return (dx * weight, vx * weight)
     }
 }

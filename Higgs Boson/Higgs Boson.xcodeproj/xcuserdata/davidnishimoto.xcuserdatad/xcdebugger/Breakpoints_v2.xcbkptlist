@@ -48,7 +48,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "4045"
             endingLineNumber = "4045"
-            landmarkName = "updateBorlagrinoAndCharge(dt:)"
+            landmarkName = "calculateCollectiveCoherence()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
@@ -80,7 +80,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "4044"
             endingLineNumber = "4044"
-            landmarkName = "updateBorlagrinoAndCharge(dt:)"
+            landmarkName = "calculateCollectiveCoherence()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>
@@ -98,36 +98,6 @@
             endingLineNumber = "2580"
             landmarkName = "runCollisionForTesting(damping:)"
             landmarkType = "7">
-            <Locations>
-               <Location
-                  uuid = "70414014-5E24-407D-98F1-57614B952DBD - 1d0e1063bb0aaf57"
-                  shouldBeEnabled = "Yes"
-                  ignoreCount = "0"
-                  continueAfterRunningActions = "No"
-                  symbolName = "Higgs_Boson.QRTLSimulation.initializeCollision(kineticEnergyJ: Swift.Double, collisionPosition: Swift.Int) -&gt; ()"
-                  moduleName = "Higgs Boson.debug.dylib"
-                  usesParentBreakpointCondition = "Yes"
-                  urlString = "file:///Users/davidnishimoto/Desktop/Higgs-Boson/Higgs%20Boson/Higgs%20Boson/QRTLSimulation.swift"
-                  startingColumnNumber = "9223372036854775807"
-                  endingColumnNumber = "9223372036854775807"
-                  startingLineNumber = "2581"
-                  endingLineNumber = "2581">
-               </Location>
-               <Location
-                  uuid = "70414014-5E24-407D-98F1-57614B952DBD - db5183e3f75b7d48"
-                  shouldBeEnabled = "Yes"
-                  ignoreCount = "0"
-                  continueAfterRunningActions = "No"
-                  symbolName = "Higgs_Boson.QRTLSimulation.runCollisionForTesting(damping: Swift.Double) -&gt; ()"
-                  moduleName = "Higgs Boson.debug.dylib"
-                  usesParentBreakpointCondition = "Yes"
-                  urlString = "file:///Users/davidnishimoto/Desktop/Higgs-Boson/Higgs%20Boson/Higgs%20Boson/QRTLSimulation.swift"
-                  startingColumnNumber = "9223372036854775807"
-                  endingColumnNumber = "9223372036854775807"
-                  startingLineNumber = "2580"
-                  endingLineNumber = "2580">
-               </Location>
-            </Locations>
          </BreakpointContent>
       </BreakpointProxy>
    </Breakpoints>

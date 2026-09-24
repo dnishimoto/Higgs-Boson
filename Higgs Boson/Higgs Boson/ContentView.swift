@@ -16,6 +16,15 @@
  
  The Higgs boson has a measured mass of about 125.2 GeV, which corresponds through \(E=hf\) to an energy-equivalent frequency of approximately 3.03 × 10²⁵ Hz; in the QRTL analogy, this can be treated as a reference frequency for comparing the lattice's natural oscillation. However, a Higgs boson does not form simply because a system oscillates at 3.03 × 10²⁵ Hz, because Higgs production requires an appropriate particle interaction with sufficient center-of-mass energy and the relevant Standard Model couplings. Therefore, the QRTL model should determine its actual dominant frequency from the time evolution of the lattice after the collision, and then compare that measured natural/resonant frequency and its corresponding energy with the Higgs reference.
 
+ The localized disturbance enters the **17³ quark lattice**, where QRTL dynamics evolve each cell's **displacement, velocity, and phase**. These responses are combined into a time-dependent **collective signal** using displacement and velocity projected along the collision direction, rather than maximum local energy.
+
+ The `collectiveSignal(t)` is analyzed by **FFT** to identify the dominant **resonant frequency**. The lattice response at that frequency is then analyzed to determine each cell's **amplitude and phase**, producing the **spatial resonant mode**. The mode amplitude is used to calculate `resonantModeEnergy`, representing the energy contained in the collective mode rather than the energy of the single most energetic cell.
+
+ Finally, `resonantModeEnergy` is compared with the **125 GeV Higgs reference energy** (~`2.0027e-8 J`) to determine whether the naturally generated mode falls within the specified tolerance.
+
+ **In short:**
+ **Localized collision → lattice evolution → collective signal → FFT → resonant frequency → spatial mode → mode energy → 125 GeV comparison → Higgs-like mode test.**
+
  */
 import SwiftUI
 
