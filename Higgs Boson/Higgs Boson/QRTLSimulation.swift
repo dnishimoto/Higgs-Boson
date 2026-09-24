@@ -2325,10 +2325,6 @@ final class QRTLSimulation: ObservableObject {
         initialCollisionEnergy =
             protonKineticEnergyJ
 
-        // --------------------------------------------------------
-        // 3. INITIALIZE COLLISION
-        // --------------------------------------------------------
-
         initializeCollision(
             kineticEnergyJ: protonKineticEnergyJ,
             collisionPosition: cells.count / 2
@@ -2338,21 +2334,8 @@ final class QRTLSimulation: ObservableObject {
             testDampingOverride = nil
             return
         }
-
-        // --------------------------------------------------------
-        // 4. CONVERT COLLISION ENERGY INTO AN OSCILLATORY STATE
-        //
-        // The initialization above creates displacement energy.
-        // Give the lattice the corresponding velocity component
-        // so that the collision produces an actual oscillation.
-        //
-        // For a harmonic oscillator:
-        //
-        //     E = 1/2 k x² + 1/2 m v²
-        //
-        // At the collision point we start near maximum
-        // displacement, then allow the lattice to evolve.
-        // --------------------------------------------------------
+        
+     
 
         let stiffness =
             max(
@@ -2437,6 +2420,8 @@ final class QRTLSimulation: ObservableObject {
             }
         }
 
+        exciteLatticeFromCollision()
+        
         // --------------------------------------------------------
         // 7. VERIFY THAT A DYNAMIC SIGNAL WAS GENERATED
         // --------------------------------------------------------

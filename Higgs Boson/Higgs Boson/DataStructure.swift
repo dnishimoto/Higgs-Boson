@@ -168,7 +168,7 @@ enum QRTLConstants {
     static let timeStep = 1.0e-27
     static let physicsStepsPerFrame = 4
     static let excitationRadius = 3.0
-    static let activeEnergyThresholdJ = 1.0e-18
+    static let activeEnergyThresholdJ = 2.0e-8
     static let sceneScale: Float = 0.75
 
     // Borlagrino / charge (dimensionless lattice flow; does not create energy)
