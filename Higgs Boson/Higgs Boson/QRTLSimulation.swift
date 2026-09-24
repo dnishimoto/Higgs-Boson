@@ -1,5 +1,3 @@
-
-
 import Foundation
 import SceneKit
 import SwiftUI
@@ -3801,42 +3799,6 @@ final class QRTLSimulation: ObservableObject {
         }
 
         // ============================================================
-        // PHYSICAL CONSTANTS
-        // ============================================================
-
-        let mass =
-            QRTLConstants.effectiveMassKg
-
-        let spacing =
-            QRTLConstants.latticeCellSpacingMeters
-
-        let stiffness =
-            QRTLConstants.effectiveStiffnessNPerM
-
-        guard mass.isFinite,
-              mass > 0.0,
-              spacing.isFinite,
-              spacing > 0.0,
-              stiffness.isFinite,
-              stiffness > 0.0 else {
-            return
-        }
-
-        let dtPhysical =
-            Float(physicsDt)
-
-        guard dtPhysical.isFinite,
-              dtPhysical > 0.0 else {
-            return
-        }
-
-        let velocityLimit =
-            Float(QRTLConstants.maxLatticeVelocity)
-
-        let displacementLimit =
-            Float(QRTLConstants.maxLatticeDisplacement)
-
-        // ============================================================
         // LATTICE UPDATE
         // ============================================================
 
@@ -3866,224 +3828,93 @@ final class QRTLSimulation: ObservableObject {
             }
 
             // ========================================================
-            // CONVERT STORED LATTICE DISPLACEMENT → METERS
-            // ========================================================
-
-            let xPhysical =
-                Double(cell.displacement.x) *
-                spacing
-
-            let yPhysical =
-                Double(cell.displacement.y) *
-                spacing
-
-            let zPhysical =
-                Double(cell.displacement.z) *
-                spacing
-
-            guard xPhysical.isFinite,
-                  yPhysical.isFinite,
-                  zPhysical.isFinite else {
-
-                cell.displacement = .zero
-                cell.velocity = .zero
-                cells[index] = cell
-                continue
-            }
-
-            // ========================================================
-            // QRTL RESTORING FORCE
+            // NOTE ON REMOVED SECOND EVOLUTION PASS
             //
-            // F = -kx
+            // This loop used to independently re-evolve cell.displacement
+            // and cell.velocity every frame via a semi-implicit Euler
+            // integrator (F = -kx -> a -> v += a*dt -> x += v*dt),
+            // explicitly treating cell.velocity as "lattice-units per
+            // second" and clamping it to ±QRTLConstants.maxLatticeVelocity
+            // (50.0) under that convention.
             //
-            // x is now explicitly in meters.
-            // ========================================================
-
-            let restoringForce =
-                SIMD3<Double>(
-                    -stiffness * xPhysical,
-                    -stiffness * yPhysical,
-                    -stiffness * zPhysical
-                )
-
-            // ========================================================
-            // QRTL FORCE
+            // updateCollisionDynamics() (called earlier this same frame,
+            // in updatePhysics) already evolves the SAME cell.displacement
+            // / cell.velocity fields via an exact analytic SHM rotation,
+            // in genuine physical units (meters, m/s). Running both meant
+            // the lattice was evolved twice per frame by two physics
+            // models that disagreed about what the stored numbers even
+            // meant — the second pass clobbered the first's physically
+            // meaningful (if numerically extreme, given the current
+            // stiffness constant) result with a value computed under an
+            // incompatible unit assumption, destroying any genuine
+            // oscillatory signal before identifyResonantMode() could ever
+            // see it.
             //
-            // Additional QRTL neighbor / strain / twist / phase
-            // terms should be added here using the same physical
-            // unit convention.
-            //
-            // For now the physically defined restoring force is the
-            // complete mechanical force.
+            // updateCollisionDynamics() is now the single evolution
+            // pathway. This block only clamps whatever it produced, in
+            // the SAME physical units it actually uses, so a numerical
+            // blowup (e.g. from the current astronomically large
+            // effective stiffness) can't propagate into localEnergy /
+            // latticeEnergy unclamped — it no longer re-derives
+            // displacement or velocity from scratch.
             // ========================================================
 
-            let force =
-                SIMD3<Float>(
-                    Float(restoringForce.x),
-                    Float(restoringForce.y),
-                    Float(restoringForce.z)
-                )
+            let velocityLimitPhysical =
+                Float(QRTLConstants.maxLatticeVelocity)
 
-            guard force.x.isFinite,
-                  force.y.isFinite,
-                  force.z.isFinite else {
-
-                cell.velocity = .zero
-                cells[index] = cell
-                continue
-            }
-
-            // ========================================================
-            // PHYSICAL ACCELERATION
-            //
-            // F / m = m/s²
-            // ========================================================
-
-            let accelerationPhysical =
-                force /
-                Float(mass)
-
-            guard accelerationPhysical.x.isFinite,
-                  accelerationPhysical.y.isFinite,
-                  accelerationPhysical.z.isFinite else {
-
-                cell.velocity = .zero
-                cells[index] = cell
-                continue
-            }
-
-            // ========================================================
-            // PHYSICAL ACCELERATION → LATTICE ACCELERATION
-            //
-            // cell.velocity is lattice-units / second.
-            //
-            // a_lattice =
-            //     a_physical / latticeSpacing
-            // ========================================================
-
-            let accelerationLattice =
-                accelerationPhysical /
-                Float(spacing)
-
-            guard accelerationLattice.x.isFinite,
-                  accelerationLattice.y.isFinite,
-                  accelerationLattice.z.isFinite else {
-
-                cell.velocity = .zero
-                cells[index] = cell
-                continue
-            }
-
-            // ========================================================
-            // SYMPLECTIC / SEMI-IMPLICIT EULER
-            //
-            // Velocity FIRST
-            // Position SECOND
-            // ========================================================
-
-            cell.velocity +=
-                accelerationLattice *
-                dtPhysical
-
-            guard cell.velocity.x.isFinite,
-                  cell.velocity.y.isFinite,
-                  cell.velocity.z.isFinite else {
-
-                cell.velocity = .zero
-                cells[index] = cell
-                continue
-            }
-
-            // ========================================================
-            // VELOCITY SAFETY LIMIT
-            // ========================================================
+            let displacementLimitPhysical =
+                Float(QRTLConstants.maxLatticeDisplacement)
 
             cell.velocity.x =
                 max(
-                    -velocityLimit,
+                    -velocityLimitPhysical,
                     min(
-                        velocityLimit,
+                        velocityLimitPhysical,
                         cell.velocity.x
                     )
                 )
 
             cell.velocity.y =
                 max(
-                    -velocityLimit,
+                    -velocityLimitPhysical,
                     min(
-                        velocityLimit,
+                        velocityLimitPhysical,
                         cell.velocity.y
                     )
                 )
 
             cell.velocity.z =
                 max(
-                    -velocityLimit,
+                    -velocityLimitPhysical,
                     min(
-                        velocityLimit,
+                        velocityLimitPhysical,
                         cell.velocity.z
                     )
                 )
 
-            // ========================================================
-            // POSITION UPDATE
-            //
-            // displacement remains lattice units.
-            // ========================================================
-
-            let displacementDelta =
-                cell.velocity *
-                dtPhysical
-
-            guard displacementDelta.x.isFinite,
-                  displacementDelta.y.isFinite,
-                  displacementDelta.z.isFinite else {
-
-                cell.velocity = .zero
-                cells[index] = cell
-                continue
-            }
-
-            cell.displacement +=
-                displacementDelta
-
-            guard cell.displacement.x.isFinite,
-                  cell.displacement.y.isFinite,
-                  cell.displacement.z.isFinite else {
-
-                cell.displacement = .zero
-                cell.velocity = .zero
-                cells[index] = cell
-                continue
-            }
-
-            // ========================================================
-            // DISPLACEMENT SAFETY LIMIT
-            // ========================================================
-
             cell.displacement.x =
                 max(
-                    -displacementLimit,
+                    -displacementLimitPhysical,
                     min(
-                        displacementLimit,
+                        displacementLimitPhysical,
                         cell.displacement.x
                     )
                 )
 
             cell.displacement.y =
                 max(
-                    -displacementLimit,
+                    -displacementLimitPhysical,
                     min(
-                        displacementLimit,
+                        displacementLimitPhysical,
                         cell.displacement.y
                     )
                 )
 
             cell.displacement.z =
                 max(
-                    -displacementLimit,
+                    -displacementLimitPhysical,
                     min(
-                        displacementLimit,
+                        displacementLimitPhysical,
                         cell.displacement.z
                     )
                 )

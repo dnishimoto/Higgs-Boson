@@ -95,21 +95,43 @@ struct QRTLSpectralResult {
 import Foundation
 
 enum QRTLConstants {
+    static let joulesPerGeV = 1.602176634e-10
+
+     static let targetHiggsMassGeV = 125.0
+
+     static let higgsReferenceEnergyJ =
+         targetHiggsMassGeV * joulesPerGeV
+
+     // ------------------------------------------------------------
+     // PHYSICAL LATTICE TIMESTEP
+     // ------------------------------------------------------------
+
+     static let timeStep = 0.002
+
+     // ------------------------------------------------------------
+     // FFT SAMPLING
+     //
+     // This is NOT automatically the same thing as the SceneKit
+     // frame interval.
+     // ------------------------------------------------------------
+
+     static let spectralSampleCount = 4096
+
+    static let spectralSampleInterval = timeStep
+     static let spectralSampleRate =
+         1.0 / spectralSampleInterval
+
+     static let spectralNyquistFrequency =
+         0.5 * spectralSampleRate
     static let maxLatticeVelocity = 50.0
     static let activeEnergyThreshold = 1e-18
     static let targetLatticeFraction = 0.5
-    static let joulesPerGeV = 1.602176634e-10
 
-    static let targetHiggsMassGeV = 125.0
-
-    static let higgsReferenceEnergyJ =
-        targetHiggsMassGeV * joulesPerGeV
 
     // Numerical cell-activity cutoff.
     // This is NOT the Higgs energy.
     static let activeEnergyThresholdJ = 1.0e-18
 
-    static let timeStep = 1.0e-27
     static let physicsStepsPerFrame = 4
 
     static let collisionKineticFractionToPotential = 0.50
@@ -133,7 +155,6 @@ enum QRTLConstants {
     static let pumpRadius = 3.0
     static let planckConstant = 6.62607015e-34
     static let speedOfLight = 299_792_458.0
-    static let spectralSampleCount = 4096
     static let joulePerGeV = 1.602176634e-10
 
     static let latticeSize = 17
