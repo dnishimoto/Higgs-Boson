@@ -630,10 +630,12 @@ final class QRTLSimulation: ObservableObject {
         naturalFrequency: Double
     ) -> Double {
 
+        // Reset this function's outputs.
         resonantModeAmplitude = 0.0
         resonantModeEnergy = 0.0
         resonantModeEnergyJ = 0.0
         resonantModeEnergyGeV = 0.0
+        resonantModeEnergyTeV = 0.0
 
         guard naturalFrequency > 0.0 else {
             return 0.0
@@ -649,18 +651,25 @@ final class QRTLSimulation: ObservableObject {
             return 0.0
         }
 
-        let sampleCount =
-            collectiveSignal.count
+        let sampleCount = collectiveSignal.count
 
         let angularFrequency =
-            2.0 *
-            Double.pi *
-            naturalFrequency
+            2.0 * Double.pi * naturalFrequency
 
-        // Remove the DC component.
+        // --------------------------------------------------------
+        // Remove DC component.
+        // --------------------------------------------------------
+
         let mean =
             collectiveSignal.reduce(0.0, +) /
             Double(sampleCount)
+
+        // --------------------------------------------------------
+        // Fourier projection at the measured natural frequency.
+        //
+        // The collectiveSignal has already been projected onto
+        // the collision direction by recordCollectiveLatticeSignal().
+        // --------------------------------------------------------
 
         var real = 0.0
         var imaginary = 0.0
@@ -683,7 +692,10 @@ final class QRTLSimulation: ObservableObject {
                 signal * sin(angle)
         }
 
-        // Normalize the Fourier projection.
+        // --------------------------------------------------------
+        // Fourier amplitude.
+        // --------------------------------------------------------
+
         let amplitude =
             (2.0 / Double(sampleCount)) *
             sqrt(
@@ -693,18 +705,22 @@ final class QRTLSimulation: ObservableObject {
 
         guard amplitude.isFinite,
               amplitude > 0.0 else {
+
             return 0.0
         }
 
+        // This is the measured resonant-mode amplitude.
         resonantModeAmplitude = amplitude
 
         // --------------------------------------------------------
-        // Convert resonant displacement into mechanical energy.
+        // Convert the measured resonant amplitude to mechanical
+        // potential energy.
         //
         // E = 1/2 k A²
         //
-        // The result is bounded by the energy actually supplied
-        // by the proton collision.
+        // The collective signal is the collision-direction
+        // displacement signal, so this amplitude represents the
+        // corresponding collision-axis mode amplitude.
         // --------------------------------------------------------
 
         let stiffness =
@@ -719,14 +735,19 @@ final class QRTLSimulation: ObservableObject {
             amplitude *
             amplitude
 
+        // --------------------------------------------------------
+        // Physical upper bound.
+        //
+        // A resonant mode cannot contain more energy than the
+        // collision supplied to the simulation.
+        // --------------------------------------------------------
+
         let availableEnergy =
             max(
                 collisionKineticEnergyJ,
                 0.0
             )
 
-        // The resonant mode cannot contain more energy than
-        // the collision supplied.
         let boundedEnergy =
             min(
                 calculatedEnergy,
@@ -739,17 +760,39 @@ final class QRTLSimulation: ObservableObject {
                 0.0
             )
 
+        // --------------------------------------------------------
+        // Unit conversions.
+        // --------------------------------------------------------
+
         resonantModeEnergyGeV =
             resonantModeEnergyJ /
             QRTLConstants.joulesPerGeV
 
+        resonantModeEnergyTeV =
+            resonantModeEnergyGeV /
+            1_000.0
+
         resonantModeEnergy =
             resonantModeEnergyJ
 
+        // --------------------------------------------------------
+        // Debug output.
+        // --------------------------------------------------------
+
         print("""
+        
         ========================================================
         RESONANT MODE ANALYSIS
         ========================================================
+
+        Collision direction:
+            \(normalizedCollisionDirection())
+
+        Samples:
+            \(sampleCount)
+
+        Sample interval:
+            \(dt) s
 
         Natural frequency:
             \(naturalFrequency) Hz
@@ -757,7 +800,13 @@ final class QRTLSimulation: ObservableObject {
         Angular frequency:
             \(angularFrequency) rad/s
 
-        Resonant amplitude:
+        Fourier real component:
+            \(real)
+
+        Fourier imaginary component:
+            \(imaginary)
+
+        Resonant mode amplitude:
             \(resonantModeAmplitude)
 
         Calculated resonant energy:
@@ -772,7 +821,11 @@ final class QRTLSimulation: ObservableObject {
         Resonant mode energy:
             \(resonantModeEnergyGeV) GeV
 
+        Resonant mode energy:
+            \(resonantModeEnergyTeV) TeV
+
         ========================================================
+        
         """)
 
         return resonantModeEnergyJ
@@ -1606,64 +1659,116 @@ final class QRTLSimulation: ObservableObject {
     }
     private func updateCollisionDynamics(dt: Double) {
 
-        guard dt > 0.0 else { return }
         guard !cells.isEmpty else { return }
 
-        let mass = QRTLConstants.effectiveMassKg
-        let stiffness = QRTLConstants.effectiveStiffnessNPerM
+        // ============================================================
+        // PHYSICS TIMESTEP
+        // ============================================================
 
-        guard mass > 0.0, stiffness > 0.0 else {
-            return
-        }
+        let physicsDt = QRTLConstants.timeStep
 
-        let omega = sqrt(stiffness / mass)
+        guard physicsDt > 0.0 else { return }
 
-        guard omega.isFinite, omega > 0.0 else {
-            return
-        }
-
-        // --------------------------------------------------------
-        // Collision state comes from the simulation.
-        // --------------------------------------------------------
+        // ============================================================
+        // COLLISION ENERGY
+        // ============================================================
 
         let kineticEnergyJ = collisionKineticEnergyJ
-        let collisionCenter = collisionCenter
 
-        guard kineticEnergyJ > 0.0 else {
+        guard kineticEnergyJ.isFinite,
+              kineticEnergyJ > 0.0 else {
             return
         }
 
-        let radius = max(
-            QRTLConstants.pumpRadius,
-            1.0
-        )
+        let collisionCenter = collisionCenter
+        let axis = normalizedCollisionDirection()
 
-        // --------------------------------------------------------
-        // 1. Convert collision kinetic energy into momentum.
-        // --------------------------------------------------------
+        // ============================================================
+        // LATTICE PARAMETERS
+        // ============================================================
 
-        let collisionVelocity = sqrt(
+        let cellMassKg =
+            QRTLConstants.effectiveMassKg
+
+        let stiffnessNPerM =
+            QRTLConstants.effectiveStiffnessNPerM
+
+        guard cellMassKg > 0.0,
+              stiffnessNPerM > 0.0 else {
+            return
+        }
+
+        // ============================================================
+        // NATURAL FREQUENCY
+        //
+        // omega = sqrt(k / m)
+        // ============================================================
+
+        let omega =
+            sqrt(stiffnessNPerM / cellMassKg)
+
+        guard omega.isFinite,
+              omega > 0.0 else {
+            return
+        }
+
+        // ============================================================
+        // COLLISION ENERGY ALLOCATED TO THE LATTICE
+        // ============================================================
+
+        let latticeEnergyFraction =
             max(
                 0.0,
-                2.0 * kineticEnergyJ / mass
+                min(
+                    1.0,
+                    QRTLConstants.collisionKineticFractionToPotential
+                )
             )
-        )
 
-        guard collisionVelocity.isFinite else {
+        let targetLatticeEnergyJ =
+            kineticEnergyJ * latticeEnergyFraction
+
+        guard targetLatticeEnergyJ.isFinite,
+              targetLatticeEnergyJ > 0.0 else {
             return
         }
 
-        let collisionMomentum =
-            mass * collisionVelocity
+        // ============================================================
+        // SPLIT LATTICE ENERGY BETWEEN POTENTIAL AND KINETIC
+        //
+        // IMPORTANT:
+        //
+        // We do NOT give each cell the full energy twice.
+        //
+        // E_total = E_potential + E_kinetic
+        //
+        // The default 50/50 split creates an initial oscillator state
+        // whose total energy is approximately targetLatticeEnergyJ.
+        // ============================================================
 
-        // --------------------------------------------------------
-        // 2. Calculate localized collision profile.
-        // --------------------------------------------------------
+        let potentialEnergyFraction = 0.5
+        let kineticEnergyFraction = 0.5
 
-        var weights = Array(
-            repeating: 0.0,
-            count: cells.count
-        )
+        let potentialEnergyTotalJ =
+            targetLatticeEnergyJ *
+            potentialEnergyFraction
+
+        let kineticEnergyTotalJ =
+            targetLatticeEnergyJ *
+            kineticEnergyFraction
+
+        // ============================================================
+        // LOCALIZED COLLISION PROFILE
+        // ============================================================
+
+        let radius =
+            max(QRTLConstants.pumpRadius, 1.0)
+
+        var weights =
+            Array(
+                repeating: 0.0,
+                count: cells.count
+            )
 
         var totalWeight = 0.0
 
@@ -1671,17 +1776,17 @@ final class QRTLSimulation: ObservableObject {
 
             let position = cells[index].position
 
-            let dx = Double(
-                position.x - collisionCenter.x
-            )
+            let dx =
+                Double(position.x) -
+                Double(collisionCenter.x)
 
-            let dy = Double(
-                position.y - collisionCenter.y
-            )
+            let dy =
+                Double(position.y) -
+                Double(collisionCenter.y)
 
-            let dz = Double(
-                position.z - collisionCenter.z
-            )
+            let dz =
+                Double(position.z) -
+                Double(collisionCenter.z)
 
             let distanceSquared =
                 dx * dx +
@@ -1698,23 +1803,31 @@ final class QRTLSimulation: ObservableObject {
             let normalizedDistance =
                 distance / radius
 
-            let weight = exp(
-                -4.0 *
-                normalizedDistance *
-                normalizedDistance
-            )
+            // Smooth localized Gaussian profile.
+            let weight =
+                exp(
+                    -4.0 *
+                    normalizedDistance *
+                    normalizedDistance
+                )
+
+            guard weight.isFinite,
+                  weight > 0.0 else {
+                continue
+            }
 
             weights[index] = weight
             totalWeight += weight
         }
 
-        guard totalWeight > 0.0 else {
+        guard totalWeight.isFinite,
+              totalWeight > 0.0 else {
             return
         }
 
-        // --------------------------------------------------------
-        // 3. Apply localized mechanical impulse.
-        // --------------------------------------------------------
+        // ============================================================
+        // DEPOSIT THE INITIAL OSCILLATOR STATE
+        // ============================================================
 
         for index in cells.indices {
 
@@ -1724,136 +1837,193 @@ final class QRTLSimulation: ObservableObject {
                 continue
             }
 
-            let cell = cells[index]
-
-            let offset = SIMD3<Float>(
-                cell.position.x - collisionCenter.x,
-                cell.position.y - collisionCenter.y,
-                cell.position.z - collisionCenter.z
-            )
-
-            let dx = Double(offset.x)
-            let dy = Double(offset.y)
-            let dz = Double(offset.z)
-
-            let distanceSquared =
-                dx * dx +
-                dy * dy +
-                dz * dz
-
-            let distance =
-                sqrt(distanceSquared)
-
-            // ----------------------------------------------------
-            // Radial propagation direction.
-            // ----------------------------------------------------
-
-            var direction = SIMD3<Float>(
-                0.0,
-                0.0,
-                0.0
-            )
-
-            if distance > 1.0e-15 {
-
-                let inverseDistance =
-                    Float(1.0 / distance)
-
-                direction = SIMD3<Float>(
-                    offset.x * inverseDistance,
-                    offset.y * inverseDistance,
-                    offset.z * inverseDistance
-                )
-            }
-
-            // ----------------------------------------------------
-            // 4. Distribute collision momentum.
-            // ----------------------------------------------------
-
             let normalizedWeight =
                 weight / totalWeight
 
-            let localMomentum =
-                collisionMomentum *
+            // ========================================================
+            // POTENTIAL ENERGY PER CELL
+            // ========================================================
+
+            let cellPotentialEnergyJ =
+                potentialEnergyTotalJ *
                 normalizedWeight
 
-            let localVelocity =
-                localMomentum / mass
+            guard cellPotentialEnergyJ.isFinite,
+                  cellPotentialEnergyJ >= 0.0 else {
+                continue
+            }
 
-            let velocityKick =
-                direction *
-                Float(localVelocity)
+            // ========================================================
+            // KINETIC ENERGY PER CELL
+            // ========================================================
 
-            // ----------------------------------------------------
-            // 5. Convert impulse into oscillator displacement.
+            let cellKineticEnergyJ =
+                kineticEnergyTotalJ *
+                normalizedWeight
+
+            guard cellKineticEnergyJ.isFinite,
+                  cellKineticEnergyJ >= 0.0 else {
+                continue
+            }
+
+            // ========================================================
+            // POTENTIAL ENERGY → DISPLACEMENT
             //
-            // This initializes the mechanical state.
-            // It does NOT assign a wavelength.
-            // ----------------------------------------------------
+            // E_p = 1/2 k A²
+            //
+            // Therefore:
+            //
+            // A = sqrt(2E_p / k)
+            // ========================================================
 
-            let displacementKick =
-                velocityKick *
-                Float(1.0 / omega)
-
-            var newVelocity =
-                cell.velocity +
-                velocityKick
-
-            var newDisplacement =
-                cell.displacement +
-                displacementKick
-
-            // ----------------------------------------------------
-            // 6. Numerical protection.
-            // ----------------------------------------------------
-
-            if !newVelocity.x.isFinite ||
-               !newVelocity.y.isFinite ||
-               !newVelocity.z.isFinite {
-
-                newVelocity =
-                    cell.velocity
-            }
-
-            if !newDisplacement.x.isFinite ||
-               !newDisplacement.y.isFinite ||
-               !newDisplacement.z.isFinite {
-
-                newDisplacement =
-                    cell.displacement
-            }
-
-            // ----------------------------------------------------
-            // 7. Store mechanical state.
-            // ----------------------------------------------------
-
-            cells[index].velocity =
-                newVelocity
-
-            cells[index].displacement =
-                newDisplacement
-
-            // ----------------------------------------------------
-            // 8. Calculate mode quantities from actual state.
-            // ----------------------------------------------------
-
-            let modeDirection =
-                cell.modeDirection
-
-            let modeCoordinate =
-                Double(
-                    dot(
-                        newDisplacement,
-                        modeDirection
+            let displacementMagnitude =
+                sqrt(
+                    max(
+                        0.0,
+                        2.0 *
+                        cellPotentialEnergyJ /
+                        stiffnessNPerM
                     )
                 )
 
-            let modeVelocity =
-                Double(
-                    dot(
-                        newVelocity,
-                        modeDirection
+            guard displacementMagnitude.isFinite else {
+                continue
+            }
+
+            // ========================================================
+            // KINETIC ENERGY → VELOCITY
+            //
+            // E_k = 1/2 m v²
+            //
+            // Therefore:
+            //
+            // v = sqrt(2E_k / m)
+            // ========================================================
+
+            let velocityMagnitude =
+                sqrt(
+                    max(
+                        0.0,
+                        2.0 *
+                        cellKineticEnergyJ /
+                        cellMassKg
                     )
+                )
+
+            guard velocityMagnitude.isFinite else {
+                continue
+            }
+
+            // ========================================================
+            // COLLISION-DIRECTION COMPRESSION
+            // ========================================================
+
+            let displacementDouble =
+                SIMD3<Double>(
+                    Double(axis.x) *
+                    displacementMagnitude,
+
+                    Double(axis.y) *
+                    displacementMagnitude,
+
+                    Double(axis.z) *
+                    displacementMagnitude
+                )
+
+            // ========================================================
+            // COLLISION-DIRECTION INITIAL VELOCITY
+            // ========================================================
+
+            let velocityDouble =
+                SIMD3<Double>(
+                    Double(axis.x) *
+                    velocityMagnitude,
+
+                    Double(axis.y) *
+                    velocityMagnitude,
+
+                    Double(axis.z) *
+                    velocityMagnitude
+                )
+
+            // ========================================================
+            // EXISTING STATE
+            // ========================================================
+
+            let oldDisplacement =
+                SIMD3<Double>(
+                    Double(cells[index].displacement.x),
+                    Double(cells[index].displacement.y),
+                    Double(cells[index].displacement.z)
+                )
+
+            let oldVelocity =
+                SIMD3<Double>(
+                    Double(cells[index].velocity.x),
+                    Double(cells[index].velocity.y),
+                    Double(cells[index].velocity.z)
+                )
+
+            // ========================================================
+            // COMBINE WITH EXISTING STATE
+            // ========================================================
+
+            let newDisplacementDouble =
+                oldDisplacement +
+                displacementDouble
+
+            let newVelocityDouble =
+                oldVelocity +
+                velocityDouble
+
+            guard newDisplacementDouble.x.isFinite,
+                  newDisplacementDouble.y.isFinite,
+                  newDisplacementDouble.z.isFinite,
+                  newVelocityDouble.x.isFinite,
+                  newVelocityDouble.y.isFinite,
+                  newVelocityDouble.z.isFinite else {
+                continue
+            }
+
+            // ========================================================
+            // STORE STATE
+            // ========================================================
+
+            cells[index].displacement =
+                SIMD3<Float>(
+                    Float(newDisplacementDouble.x),
+                    Float(newDisplacementDouble.y),
+                    Float(newDisplacementDouble.z)
+                )
+
+            cells[index].velocity =
+                SIMD3<Float>(
+                    Float(newVelocityDouble.x),
+                    Float(newVelocityDouble.y),
+                    Float(newVelocityDouble.z)
+                )
+
+            // ========================================================
+            // MODE QUANTITIES
+            // ========================================================
+
+            let modeDirection =
+                SIMD3<Double>(
+                    Double(cells[index].modeDirection.x),
+                    Double(cells[index].modeDirection.y),
+                    Double(cells[index].modeDirection.z)
+                )
+
+            let modeCoordinate =
+                simd_dot(
+                    newDisplacementDouble,
+                    modeDirection
+                )
+
+            let modeVelocity =
+                simd_dot(
+                    newVelocityDouble,
+                    modeDirection
                 )
 
             cells[index].modeCoordinate =
@@ -1861,6 +2031,12 @@ final class QRTLSimulation: ObservableObject {
 
             cells[index].modeVelocity =
                 modeVelocity
+
+            // ========================================================
+            // OSCILLATOR AMPLITUDE
+            //
+            // A² = x² + (v / omega)²
+            // ========================================================
 
             let amplitudeSquared =
                 modeCoordinate * modeCoordinate +
@@ -1877,54 +2053,157 @@ final class QRTLSimulation: ObservableObject {
                     )
                 )
 
-            // ----------------------------------------------------
-            // 9. Calculate actual mechanical energy.
-            // ----------------------------------------------------
+            // ========================================================
+            // ACTUAL MECHANICAL ENERGY
+            // ========================================================
 
             cells[index].localEnergy =
                 physicalEnergy(
-                    displacement: newDisplacement,
-                    velocity: newVelocity
+                    displacement:
+                        cells[index].displacement,
+                    velocity:
+                        cells[index].velocity
                 )
-
-            // ----------------------------------------------------
-            // 10. Phase is intentionally NOT forced here.
-            //
-            // updateLattice(dt:) evolves phase naturally.
-            // ----------------------------------------------------
         }
 
-        // --------------------------------------------------------
-        // 11. Recalculate total lattice energy.
-        // --------------------------------------------------------
+        // ============================================================
+        // TOTAL RESULTING LATTICE ENERGY
+        // ============================================================
 
         latticeEnergy =
             totalMechanicalLatticeEnergy()
 
+        // ============================================================
+        // ENERGY DIAGNOSTICS
+        // ============================================================
+
+        let latticeFraction =
+            latticeEnergy /
+            kineticEnergyJ
+
+        let referenceHiggsEnergyJ =
+            QRTLConstants.targetHiggsMassGeV *
+            QRTLConstants.joulesPerGeV
+
+        let latticeTargetGeV =
+            targetLatticeEnergyJ /
+            QRTLConstants.joulesPerGeV
+
+        let resultingLatticeEnergyGeV =
+            latticeEnergy /
+            QRTLConstants.joulesPerGeV
+
+        let higgsFractionOfCollision =
+            referenceHiggsEnergyJ /
+            kineticEnergyJ
+
+        let higgsFractionOfLattice =
+            referenceHiggsEnergyJ /
+            targetLatticeEnergyJ
+
+        let energyErrorJ =
+            latticeEnergy -
+            targetLatticeEnergyJ
+
+        let energyErrorFraction =
+            energyErrorJ /
+            targetLatticeEnergyJ
+
         print("""
-        
+        ============================================================
         COLLISION DYNAMIC
-        
-        dt:
+        ============================================================
+
+        Render dt:
             \(dt) s
-        
+
+        Physics dt:
+            \(physicsDt) s
+
         Collision kinetic energy:
             \(kineticEnergyJ) J
-        
-        Collision velocity:
-            \(collisionVelocity) m/s
-        
-        Collision momentum:
-            \(collisionMomentum) kg·m/s
-        
-        Collision center:
-            \(collisionCenter)
-        
-        Pump radius:
-            \(radius)
-        
+
+        Collision kinetic energy:
+            \(kineticEnergyJ / QRTLConstants.joulesPerGeV) GeV
+
+        ------------------------------------------------------------
+
+        Target lattice fraction:
+            \(latticeEnergyFraction)
+
+        Target lattice energy:
+            \(targetLatticeEnergyJ) J
+
+        Target lattice energy:
+            \(latticeTargetGeV) GeV
+
+        Potential allocation:
+            \(potentialEnergyTotalJ) J
+
+        Kinetic allocation:
+            \(kineticEnergyTotalJ) J
+
+        ------------------------------------------------------------
+
         Resulting lattice energy:
             \(latticeEnergy) J
+
+        Resulting lattice energy:
+            \(resultingLatticeEnergyGeV) GeV
+
+        Lattice / collision energy:
+            \(latticeFraction)
+
+        Energy error:
+            \(energyErrorJ) J
+
+        Energy error fraction:
+            \(energyErrorFraction)
+
+        ------------------------------------------------------------
+
+        Natural angular frequency:
+            \(omega) rad/s
+
+        Natural frequency:
+            \(omega / (2.0 * Double.pi)) Hz
+
+        ------------------------------------------------------------
+
+        125 GeV reference energy:
+            \(referenceHiggsEnergyJ) J
+
+        125 GeV / collision energy:
+            \(higgsFractionOfCollision)
+
+        125 GeV / target lattice energy:
+            \(higgsFractionOfLattice)
+
+        ------------------------------------------------------------
+
+        Collision direction:
+            \(axis)
+
+        ============================================================
+        """)
+        
+        print("""
+        PHYSICS SCALE DEBUG
+
+        effectiveMassKg:
+            \(QRTLConstants.effectiveMassKg)
+
+        effectiveStiffnessNPerM:
+            \(QRTLConstants.effectiveStiffnessNPerM)
+
+        targetLatticeEnergyJ:
+            \(targetLatticeEnergyJ)
+
+        actualLatticeEnergyJ:
+            \(latticeEnergy)
+
+        energyRatio:
+            \(latticeEnergy / targetLatticeEnergyJ)
         """)
     }
     private func calculateBorlagrinoFlow(
@@ -2984,15 +3263,59 @@ final class QRTLSimulation: ObservableObject {
 
     // MARK: - Lattice mass–spring CA
 
-    private func physicalEnergy(displacement: SIMD3<Float>, velocity: SIMD3<Float>) -> Double {
-        let spacing = QRTLConstants.latticeCellSpacingMeters
-        let x = Double(simd_length(displacement)) * spacing
-        let v = Double(simd_length(velocity)) * spacing
-        guard x.isFinite, v.isFinite else { return 0 }
-        let pot = 0.5 * QRTLConstants.effectiveStiffnessNPerM * x * x
-        let kin = 0.5 * QRTLConstants.effectiveMassKg * v * v
-        let e = pot + kin
-        return e.isFinite ? max(0, e) : 0
+    private func physicalEnergy(
+        displacement: SIMD3<Float>,
+        velocity: SIMD3<Float>
+    ) -> Double {
+
+        let mass =
+            QRTLConstants.effectiveMassKg
+
+        let stiffness =
+            QRTLConstants.effectiveStiffnessNPerM
+
+        guard mass > 0.0,
+              stiffness > 0.0 else {
+            return 0.0
+        }
+
+        let dx = Double(displacement.x)
+        let dy = Double(displacement.y)
+        let dz = Double(displacement.z)
+
+        let vx = Double(velocity.x)
+        let vy = Double(velocity.y)
+        let vz = Double(velocity.z)
+
+        let displacementSquared =
+            dx * dx +
+            dy * dy +
+            dz * dz
+
+        let velocitySquared =
+            vx * vx +
+            vy * vy +
+            vz * vz
+
+        let potentialEnergy =
+            0.5 *
+            stiffness *
+            displacementSquared
+
+        let kineticEnergy =
+            0.5 *
+            mass *
+            velocitySquared
+
+        let totalEnergy =
+            potentialEnergy +
+            kineticEnergy
+
+        guard totalEnergy.isFinite else {
+            return 0.0
+        }
+
+        return totalEnergy
     }
 
     func totalMechanicalLatticeEnergy() -> Double {
@@ -4042,7 +4365,7 @@ final class QRTLSimulation: ObservableObject {
 
         for c in cells {
 
-            let weight = max(c.localEnergy, 0)
+            let weight = max(Double(c.localEnergy), 0.0)
 
             guard weight > QRTLConstants.activeEnergyThresholdJ else {
                 continue
@@ -4050,65 +4373,75 @@ final class QRTLSimulation: ObservableObject {
 
             activeCellCount += 1
 
-            real += weight * cos(c.phase)
-            imag += weight * sin(c.phase)
+            real += weight * cos(Double(c.phase))
+            imag += weight * sin(Double(c.phase))
             w += weight
         }
 
-        let phaseVectorMagnitude = sqrt(real * real + imag * imag)
+        let phaseVectorMagnitude =
+            sqrt(real * real + imag * imag)
 
-        guard w > 0 else {
+        guard w > 0.0 else {
 
-            collectiveCoherence = 0
-            resonantModeEnergyJ = 0
-            resonantModeEnergyGeV = 0
-            resonantModeEnergyTeV = 0
-            resonantModeEnergy = 0
+            collectiveCoherence = 0.0
 
             print("""
             
             ===== COLLECTIVE COHERENCE DEBUG =====
-            
+
             Total cells:
                 \(cells.count)
-            
+
             Active cells:
                 \(activeCellCount)
-            
+
             Active energy threshold:
                 \(QRTLConstants.activeEnergyThresholdJ) J
-            
+
             Real phase component:
                 \(real)
-            
+
             Imaginary phase component:
                 \(imag)
-            
+
             Phase-vector magnitude:
                 \(phaseVectorMagnitude)
-            
+
             Weighted active energy:
                 \(w) J
-            
+
+            Collective coherence:
+                0.0
+
             ⚠️ No active energy above threshold.
-            
+
+            Resonant mode energy:
+                \(resonantModeEnergyJ) J
+
             =======================================
-            
+
             """)
 
             return
         }
 
+        // --------------------------------------------------------
+        // Collective phase coherence
+        // --------------------------------------------------------
+
         collectiveCoherence =
             min(1.0, phaseVectorMagnitude / w)
 
-        // Spin-0-like resonance proxy:
-        // coherent phase alignment converts lattice energy
-        // into the resonant-mode energy estimate.
-        resonantModeEnergyJ =
-            latticeEnergy *
-            collectiveCoherence *
-            collectiveCoherence
+        // --------------------------------------------------------
+        // IMPORTANT:
+        //
+        // Do NOT calculate resonantModeEnergyJ here.
+        //
+        // Coherence describes phase alignment.
+        // The resonant-mode energy must come from the
+        // identified spatial mode at the measured resonance
+        // frequency.
+        // --------------------------------------------------------
 
         resonantModeEnergyGeV =
             resonantModeEnergyJ /
@@ -4123,69 +4456,135 @@ final class QRTLSimulation: ObservableObject {
         print("""
         
         ===== COLLECTIVE COHERENCE DEBUG =====
-        
+
         Total cells:
             \(cells.count)
-        
+
         Active cells:
             \(activeCellCount)
-        
+
         Active energy threshold:
             \(QRTLConstants.activeEnergyThresholdJ) J
-        
+
         Lattice energy:
             \(latticeEnergy) J
-        
+
         Real phase component:
             \(real)
-        
+
         Imaginary phase component:
             \(imag)
-        
+
         Phase-vector magnitude:
             \(phaseVectorMagnitude)
-        
+
         Weighted active energy:
             \(w) J
-        
+
         Collective coherence:
             \(collectiveCoherence)
-        
+
         Coherence squared:
             \(collectiveCoherence * collectiveCoherence)
-        
+
         Resonant mode energy:
             \(resonantModeEnergyJ) J
-        
+
         Resonant mode energy:
             \(resonantModeEnergyGeV) GeV
-        
+
         Resonant mode energy:
             \(resonantModeEnergyTeV) TeV
-        
+
         =========================================
-        
+
         """)
     }
-    private func recordCollectiveLatticeSignal() {
-        guard collisionOccurred, !cells.isEmpty else { return }
-        var wd = 0.0, te = 0.0
-        for c in cells {
-            let e = max(c.localEnergy, 0)
-            guard e > 1e-30 else { continue }
-            wd += e * c.modeCoordinate
-            te += e
+    private func normalizedCollisionDirection() -> SIMD3<Float> {
+
+        let magnitude = simd_length(collisionDirection)
+
+        guard magnitude > 1.0e-12 else {
+            return SIMD3<Float>(1, 0, 0)
         }
-        guard te > 1e-30 else { return }
-        spectralAnalyzer.append(wd / te)
-        spectralSampleCount = spectralAnalyzer.samples.count
-        spectralNyquistHz = 0.5 / QRTLConstants.timeStep
-        if spectralAnalyzer.samples.count >= min(256, QRTLConstants.spectralSampleCount),
-           let spectral = spectralAnalyzer.analyze(sampleInterval: QRTLConstants.timeStep) {
-            resonantFrequencyHz = spectral.frequencyHz
-            resonantAngularFrequency = spectral.angularFrequency
-            resonantWavelengthMeters = spectral.wavelengthMeters
-            spectralPeakAmplitude = spectral.peakAmplitude
+
+        return collisionDirection / magnitude
+    }
+    private func recordCollectiveLatticeSignal() {
+
+        guard collisionOccurred, !cells.isEmpty else { return }
+
+        let axis = normalizedCollisionDirection()
+
+        var weightedDisplacement = 0.0
+        var weightedVelocity = 0.0
+        var totalEnergy = 0.0
+
+        for c in cells {
+
+            let energy = max(Double(c.localEnergy), 0.0)
+
+            guard energy > 1e-30 else { continue }
+
+            let displacementProjection =
+                Double(simd_dot(c.displacement, axis))
+
+            let velocityProjection =
+                Double(simd_dot(c.velocity, axis))
+
+            weightedDisplacement +=
+                energy * displacementProjection
+
+            weightedVelocity +=
+                energy * velocityProjection
+
+            totalEnergy += energy
+        }
+
+        guard totalEnergy > 1e-30 else {
+            return
+        }
+
+        let collectiveDisplacement =
+            weightedDisplacement / totalEnergy
+
+        let collectiveVelocity =
+            weightedVelocity / totalEnergy
+
+        // Collision-direction collective signal.
+        // The velocity term preserves the time-varying component
+        // without changing the physical energy accounting.
+        let signal =
+            collectiveDisplacement +
+            collectiveVelocity * QRTLConstants.timeStep
+
+        spectralAnalyzer.append(signal)
+
+        spectralSampleCount =
+            spectralAnalyzer.samples.count
+
+        spectralNyquistHz =
+            0.5 / QRTLConstants.timeStep
+
+        if spectralAnalyzer.samples.count >=
+            min(256, QRTLConstants.spectralSampleCount),
+           let spectral =
+                spectralAnalyzer.analyze(
+                    sampleInterval: QRTLConstants.timeStep
+                ) {
+
+            resonantFrequencyHz =
+                spectral.frequencyHz
+
+            resonantAngularFrequency =
+                spectral.angularFrequency
+
+            resonantWavelengthMeters =
+                spectral.wavelengthMeters
+
+            spectralPeakAmplitude =
+                spectral.peakAmplitude
+
             spectralAnalysisComplete = true
         }
     }
