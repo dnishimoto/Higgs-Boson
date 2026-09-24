@@ -481,145 +481,8 @@ final class QRTLSimulation: ObservableObject {
         ========================================================
         """)
     }
-    // ============================================================
-    // NATURAL FREQUENCY FROM COLLECTIVE COLLISION SIGNAL
-    // ============================================================
-
-    func analyzeNaturalFrequency() {
-
-        naturalFrequency = 0.0
-        naturalAngularFrequency = 0.0
-        naturalFrequencyHz = 0.0
-
-        guard collectiveSignal.count >= 8 else {
-            return
-        }
-
-        let dt = QRTLConstants.timeStep
-
-        guard dt > 0.0 else {
-            return
-        }
-
-        // Remove the DC component so that the collision offset
-        // does not appear as a false resonance.
-        let mean =
-            collectiveSignal.reduce(0.0, +) /
-            Double(collectiveSignal.count)
-
-        let signal = collectiveSignal.map {
-            $0 - mean
-        }
-
-        let sampleCount = signal.count
-
-        // Search frequencies from one FFT-like frequency bin
-        // through the Nyquist frequency.
-        let frequencyResolution =
-            1.0 /
-            (Double(sampleCount) * dt)
-
-        let nyquistFrequency =
-            1.0 /
-            (2.0 * dt)
-
-        guard frequencyResolution > 0.0,
-              nyquistFrequency > frequencyResolution else {
-            return
-        }
-
-        var strongestFrequency = 0.0
-        var strongestAmplitude = 0.0
-
-        let maximumBin =
-            Int(nyquistFrequency / frequencyResolution)
-
-        guard maximumBin >= 1 else {
-            return
-        }
-
-        // Direct discrete Fourier projection.
-        //
-        // This avoids assigning a wavelength. The frequency comes
-        // from the time evolution of the collision signal.
-        for bin in 1...maximumBin {
-
-            let frequency =
-                Double(bin) * frequencyResolution
-
-            let angularFrequency =
-                2.0 * Double.pi * frequency
-
-            var real = 0.0
-            var imaginary = 0.0
-
-            for sample in 0..<sampleCount {
-
-                let time =
-                    Double(sample) * dt
-
-                let angle =
-                    angularFrequency * time
-
-                real +=
-                    signal[sample] *
-                    cos(angle)
-
-                imaginary +=
-                    signal[sample] *
-                    sin(angle)
-            }
-
-            let amplitude =
-                sqrt(
-                    real * real +
-                    imaginary * imaginary
-                )
-
-            if amplitude > strongestAmplitude {
-                strongestAmplitude = amplitude
-                strongestFrequency = frequency
-            }
-        }
-
-        guard strongestFrequency > 0.0 else {
-            return
-        }
-
-        naturalFrequency = strongestFrequency
-
-        naturalAngularFrequency =
-            2.0 *
-            Double.pi *
-            strongestFrequency
-
-        naturalFrequencyHz =
-            strongestFrequency
-
-        print("""
-        ========================================================
-        NATURAL FREQUENCY ANALYSIS
-        ========================================================
-
-        Signal samples:
-            \(sampleCount)
-
-        Time step:
-            \(dt) s
-
-        Frequency resolution:
-            \(frequencyResolution) Hz
-
-        Dominant frequency:
-            \(naturalFrequency) Hz
-
-        Angular frequency:
-            \(naturalAngularFrequency) rad/s
-
-        ========================================================
-        """)
-    }
-
+  
+   
 
     // ============================================================
     // IDENTIFY RESONANT MODE AND CALCULATE ITS ENERGY
@@ -2598,7 +2461,6 @@ final class QRTLSimulation: ObservableObject {
         initialCollisionEnergy = 0.0
         ejectedEnergy = 0.0
         dissipatedEnergy = 0.0
-
         resonantModeEnergyJ = 0.0
         resonantModeEnergyGeV = 0.0
 
@@ -2626,8 +2488,10 @@ final class QRTLSimulation: ObservableObject {
             testDampingOverride = nil
             return
         }
-        
-     
+
+        // --------------------------------------------------------
+        // 3. INITIAL OSCILLATOR PARAMETERS
+        // --------------------------------------------------------
 
         let stiffness =
             max(
@@ -2645,12 +2509,14 @@ final class QRTLSimulation: ObservableObject {
             sqrt(stiffness / mass)
 
         // --------------------------------------------------------
+        // 4. INITIAL COLLISION VELOCITY
+        //
         // Give every energized cell the velocity corresponding
         // to its local oscillator state.
         //
         // This does NOT assign the final resonance frequency.
-        // It simply supplies the kinetic part of the collision
-        // disturbance so updateLattice() can generate motion.
+        // It supplies the kinetic part of the collision disturbance
+        // so updateLattice() can generate motion.
         // --------------------------------------------------------
 
         for index in cells.indices {
@@ -2668,12 +2534,6 @@ final class QRTLSimulation: ObservableObject {
                 continue
             }
 
-            // For the initialized collision, displacement already
-            // represents the local potential-energy component.
-            //
-            // Give the cell a small phase-shifted velocity so the
-            // disturbance evolves instead of remaining static.
-
             let velocityScale =
                 omega * abs(displacement)
 
@@ -2688,7 +2548,7 @@ final class QRTLSimulation: ObservableObject {
         }
 
         // --------------------------------------------------------
-        // 5. RECORD THE INITIAL COLLECTIVE STATE
+        // 5. RECORD INITIAL COLLECTIVE STATE
         // --------------------------------------------------------
 
         recordCollectiveSignal()
@@ -2706,14 +2566,13 @@ final class QRTLSimulation: ObservableObject {
 
             recordCollectiveSignal()
 
-            // Stop only after the requested propagation period.
             if step >= numberOfSteps - 1 {
                 break
             }
         }
 
         exciteLatticeFromCollision()
-        
+
         // --------------------------------------------------------
         // 7. VERIFY THAT A DYNAMIC SIGNAL WAS GENERATED
         // --------------------------------------------------------
@@ -2724,10 +2583,8 @@ final class QRTLSimulation: ObservableObject {
             ========================================================
             RESONANCE TEST
             ========================================================
-
             Insufficient collective signal samples:
                 \(collectiveSignal.count)
-
             ========================================================
             """)
 
@@ -2739,14 +2596,17 @@ final class QRTLSimulation: ObservableObject {
         // 8. EXTRACT FREQUENCY FROM THE COLLECTIVE SIGNAL
         // --------------------------------------------------------
 
-        analyzeNaturalFrequency()
+        let measuredFrequency =
+            analyzeNaturalFrequency(
+                sampleInterval: dt
+            )
 
         // --------------------------------------------------------
         // 9. IDENTIFY THE RESONANT MODE
         // --------------------------------------------------------
 
         _ = identifyResonantMode(
-            naturalFrequency: naturalFrequency
+            naturalFrequency: measuredFrequency
         )
 
         // --------------------------------------------------------
@@ -2760,7 +2620,7 @@ final class QRTLSimulation: ObservableObject {
         // --------------------------------------------------------
 
         updateResonancePersistence(
-            naturalFrequency: naturalFrequency,
+            naturalFrequency: measuredFrequency,
             dt: dt
         )
 
@@ -2780,7 +2640,6 @@ final class QRTLSimulation: ObservableObject {
         ========================================================
         PROTON COLLISION RESONANCE TEST
         ========================================================
-
         Proton mass:
             \(protonMassKg) kg
 
@@ -2817,6 +2676,9 @@ final class QRTLSimulation: ObservableObject {
         Natural frequency:
             \(naturalFrequency) Hz
 
+        Measured collective frequency:
+            \(measuredFrequency) Hz
+
         Resonant mode amplitude:
             \(resonantModeAmplitude)
 
@@ -2828,12 +2690,11 @@ final class QRTLSimulation: ObservableObject {
 
         ========================================================
         """)
-        
+
         print("""
         ========================================================
         COLLECTIVE SIGNAL DEBUG
         ========================================================
-
         Samples:
             \(collectiveSignal.count)
 
@@ -2854,9 +2715,12 @@ final class QRTLSimulation: ObservableObject {
 
         ========================================================
         """)
+
         // Remove test override
         testDampingOverride = nil
     }
+
+
     private func initializeCollision(
         kineticEnergyJ: Double,
         collisionPosition: Int
@@ -3360,8 +3224,7 @@ final class QRTLSimulation: ObservableObject {
         // natural modes
         // ============================================================
 
-        let h =
-            QRTLConstants.timeStep
+        let h = QRTLConstants.timeStep
 
         guard h > 0.0 else {
             return
@@ -3381,6 +3244,15 @@ final class QRTLSimulation: ObservableObject {
 
         // ============================================================
         // NATURAL ANGULAR FREQUENCY
+        //
+        // omega = sqrt(k / m)
+        //
+        // With the calibrated constants:
+        //
+        // omega ≈ 1.8989470767e26 rad/s
+        // f     ≈ 3.0222681392e25 Hz
+        //
+        // E = h_Planck * f ≈ 125 GeV
         // ============================================================
 
         let omega =
@@ -3395,7 +3267,10 @@ final class QRTLSimulation: ObservableObject {
             return
         }
 
-      
+        // ============================================================
+        // ANALYTIC SELF OSCILLATION
+        // ============================================================
+
         let angle =
             omega * h
 
@@ -3420,7 +3295,16 @@ final class QRTLSimulation: ObservableObject {
             )
 
         // ============================================================
-        // LIMITS
+        // NUMERICAL LIMITS
+        //
+        // IMPORTANT:
+        // Do NOT force the displacement floor to 1e-12 m.
+        //
+        // At k = 3.606e28 N/m:
+        //
+        // 1/2 k (1e-12)^2 ≈ 1.8e4 J PER CELL
+        //
+        // That is enormously larger than the collision energy.
         // ============================================================
 
         let maxDisplacement =
@@ -3428,7 +3312,7 @@ final class QRTLSimulation: ObservableObject {
                 Double(
                     QRTLConstants.maxLatticeDisplacement
                 ),
-                1.0e-12
+                Double.leastNonzeroMagnitude
             )
 
         let maxVelocity =
@@ -3436,13 +3320,13 @@ final class QRTLSimulation: ObservableObject {
                 Double(
                     QRTLConstants.maxLatticeVelocity
                 ),
-                1.0e-12
+                Double.leastNonzeroMagnitude
             )
 
         // ============================================================
         // SYNCHRONOUS LATTICE UPDATE
         //
-        // Every cell reads the previous lattice state.
+        // Every cell reads from the previous lattice state.
         // ============================================================
 
         var next =
@@ -3581,6 +3465,10 @@ final class QRTLSimulation: ObservableObject {
 
             // ========================================================
             // ANALYTIC SELF OSCILLATION
+            //
+            // Exact solution for:
+            //
+            // m x'' + k x = 0
             // ========================================================
 
             var newX =
@@ -3606,8 +3494,19 @@ final class QRTLSimulation: ObservableObject {
             // ========================================================
             // NEIGHBOR COUPLING
             //
-            // The collision disturbance is transferred between
-            // neighboring cells.
+            // IMPORTANT ENERGY FIX:
+            //
+            // Do NOT use:
+            //
+            // velocityDelta * coupling * h
+            //
+            // as an independent velocity kick.
+            //
+            // That term has no properly defined acceleration scale
+            // and can introduce energy that was not supplied by the
+            // collision.
+            //
+            // Coupling therefore redistributes displacement only.
             // ========================================================
 
             let coupling =
@@ -3617,24 +3516,9 @@ final class QRTLSimulation: ObservableObject {
                 neighborDisplacement -
                 newX
 
-            let velocityDelta =
-                neighborVelocity -
-                newV
-
-            let displacementKick =
-                displacementDelta *
-                coupling
-
-            let velocityKick =
-                velocityDelta *
-                coupling
-
             newX +=
-                displacementKick *
-                h
-
-            newV +=
-                velocityKick *
+                displacementDelta *
+                coupling *
                 h
 
             // ========================================================
@@ -3645,7 +3529,7 @@ final class QRTLSimulation: ObservableObject {
                 damping
 
             // ========================================================
-            // SAFETY
+            // FINITE-VALUE SAFETY
             // ========================================================
 
             if !newX.x.isFinite ||
@@ -3730,6 +3614,7 @@ final class QRTLSimulation: ObservableObject {
                 damping
 
             if !newTwist.isFinite {
+
                 newTwist =
                     twist
             }
@@ -3781,24 +3666,35 @@ final class QRTLSimulation: ObservableObject {
             // ========================================================
             // PHASE
             //
-            // Phase comes from the actual mechanical state.
-            //
-            // This allows different cells to develop different phases
-            // as the disturbance propagates.
+            // Phase is derived from the actual mechanical state.
             // ========================================================
 
             let normalizedVelocity =
                 modeVelocity *
                 omegaInverse
 
-            let oscillatorAmplitude =
-                sqrt(
-                    modeCoordinate *
-                    modeCoordinate
-                    +
-                    normalizedVelocity *
-                    normalizedVelocity
-                )
+            let oscillatorAmplitudeSquared =
+                modeCoordinate *
+                modeCoordinate
+                +
+                normalizedVelocity *
+                normalizedVelocity
+
+            let oscillatorAmplitude: Double
+
+            if oscillatorAmplitudeSquared.isFinite &&
+               oscillatorAmplitudeSquared > 0.0 {
+
+                oscillatorAmplitude =
+                    sqrt(
+                        oscillatorAmplitudeSquared
+                    )
+
+            } else {
+
+                oscillatorAmplitude =
+                    0.0
+            }
 
             var phase =
                 cell.phase
@@ -3836,8 +3732,7 @@ final class QRTLSimulation: ObservableObject {
                     1.0,
                     simd_length(
                         newX
-                    )
-                    /
+                    ) /
                     maxDisplacement
                 )
 
@@ -3857,38 +3752,59 @@ final class QRTLSimulation: ObservableObject {
             // ========================================================
             // MECHANICAL ENERGY
             //
-            // Energy is calculated from the actual displacement and
-            // velocity produced by the collision and subsequent
-            // propagation.
+            // THIS IS NOW THE SINGLE SOURCE OF TRUTH.
+            //
+            // E = kinetic + potential
+            //
+            // kinetic  = 1/2 m v²
+            // potential = 1/2 k x²
+            //
+            // localEnergy is NEVER incremented.
             // ========================================================
 
-            let localEnergy =
-                physicalEnergy(
-                    displacement:
-                        SIMD3<Float>(
-                            Float(
-                                newX.x
-                            ),
-                            Float(
-                                newX.y
-                            ),
-                            Float(
-                                newX.z
-                            )
-                        ),
-                    velocity:
-                        SIMD3<Float>(
-                            Float(
-                                newV.x
-                            ),
-                            Float(
-                                newV.y
-                            ),
-                            Float(
-                                newV.z
-                            )
-                        )
-                )
+            let displacementSquared =
+                newX.x * newX.x
+                +
+                newX.y * newX.y
+                +
+                newX.z * newX.z
+
+            let velocitySquared =
+                newV.x * newV.x
+                +
+                newV.y * newV.y
+                +
+                newV.z * newV.z
+
+            let potentialEnergy =
+                0.5 *
+                stiffness *
+                displacementSquared
+
+            let kineticEnergy =
+                0.5 *
+                mass *
+                velocitySquared
+
+            let mechanicalEnergy =
+                potentialEnergy +
+                kineticEnergy
+
+            let localEnergy: Double
+
+            if mechanicalEnergy.isFinite {
+
+                localEnergy =
+                    max(
+                        0.0,
+                        mechanicalEnergy
+                    )
+
+            } else {
+
+                localEnergy =
+                    0.0
+            }
 
             // ========================================================
             // COUPLING STATE
@@ -3900,18 +3816,12 @@ final class QRTLSimulation: ObservableObject {
                     newX
                 )
 
-            let couplingIncrement =
-                coupling
-                *
+            let normalizedDifference =
                 min(
                     1.0,
                     displacementDifference /
                     maxDisplacement
                 )
-                *
-                h
-                /
-                QRTLConstants.timeStep
 
             let couplingState =
                 min(
@@ -3920,12 +3830,15 @@ final class QRTLSimulation: ObservableObject {
                         0.0,
                         cell.couplingState
                         +
-                        couplingIncrement
+                        coupling *
+                        normalizedDifference *
+                        h /
+                        QRTLConstants.timeStep
                     )
                 )
 
             // ========================================================
-            // COMMIT CELL
+            // COMMIT CELL TO NEXT STATE
             // ========================================================
 
             next[index].displacement =
@@ -3988,11 +3901,10 @@ final class QRTLSimulation: ObservableObject {
             next[index].localStrain =
                 strain
 
+            // IMPORTANT:
+            // Mechanical state determines energy.
             next[index].localEnergy =
-                max(
-                    0.0,
-                    localEnergy
-                )
+                localEnergy
 
             next[index].couplingState =
                 couplingState
@@ -4000,6 +3912,7 @@ final class QRTLSimulation: ObservableObject {
             next[index].modeDirection =
                 direction
 
+            // Preserve QRTL flow / charge.
             next[index].borlagrinoFlow =
                 cell.borlagrinoFlow
 
@@ -4023,6 +3936,9 @@ final class QRTLSimulation: ObservableObject {
 
         // ============================================================
         // DISSIPATION
+        //
+        // Energy remaining in the lattice is not counted as
+        // dissipation.
         // ============================================================
 
         dissipatedEnergyJ =
@@ -4090,20 +4006,32 @@ final class QRTLSimulation: ObservableObject {
                     cell.localEnergy
                 )
 
-            weightedAmplitude +=
-                energy *
-                cell.amplitude *
-                cell.amplitude
+            let cellAmplitude =
+                Double(
+                    cell.amplitude
+                )
 
-            weightedEnergy +=
-                energy
+            if energy.isFinite &&
+               cellAmplitude.isFinite {
+
+                weightedAmplitude +=
+                    energy *
+                    cellAmplitude *
+                    cellAmplitude
+
+                weightedEnergy +=
+                    energy
+            }
         }
 
         collectiveAmplitude =
             weightedEnergy > 0.0
             ? sqrt(
-                weightedAmplitude /
-                weightedEnergy
+                max(
+                    0.0,
+                    weightedAmplitude /
+                    weightedEnergy
+                )
             )
             : 0.0
 
@@ -4168,38 +4096,98 @@ final class QRTLSimulation: ObservableObject {
         // QUARK COLLISION MECHANICS
         // ============================================================
 
-        updateQuarkCollisionState(dt: dt)
+        updateQuarkCollisionState(
+            dt: dt
+        )
 
         if collisionOccurred {
-            let progress = min(1, collisionElapsedTime / quarkVisualDuration)
-            if progress < 1 {
-                let compression = sin(progress * .pi * 0.5)
-                applyQuarkCompression(compression: compression)
-                applyTwistAttractionRepulsion(compression: compression, repulsion: 0)
+
+            let progress =
+                min(
+                    1.0,
+                    collisionElapsedTime /
+                    quarkVisualDuration
+                )
+
+            if progress < 1.0 {
+
+                let compression =
+                    sin(
+                        progress *
+                        .pi *
+                        0.5
+                    )
+
+                applyQuarkCompression(
+                    compression:
+                        compression
+                )
+
+                applyTwistAttractionRepulsion(
+                    compression:
+                        compression,
+                    repulsion:
+                        0.0
+                )
+
             } else {
-                let repulsionProgress = min(1, (collisionElapsedTime - quarkVisualDuration) / quarkVisualDuration)
-                let repulsion = sin(repulsionProgress * .pi * 0.5)
-                applyQuarkRepulsion(repulsion: repulsion)
-                applyTwistAttractionRepulsion(compression: 0, repulsion: repulsion)
-                releaseCollisionEnergy(amount: repulsion)
+
+                let repulsionProgress =
+                    min(
+                        1.0,
+                        (
+                            collisionElapsedTime -
+                            quarkVisualDuration
+                        )
+                        /
+                        quarkVisualDuration
+                    )
+
+                let repulsion =
+                    sin(
+                        repulsionProgress *
+                        .pi *
+                        0.5
+                    )
+
+                applyQuarkRepulsion(
+                    repulsion:
+                        repulsion
+                )
+
+                applyTwistAttractionRepulsion(
+                    compression:
+                        0.0,
+                    repulsion:
+                        repulsion
+                )
+
+                releaseCollisionEnergy(
+                    amount:
+                        repulsion
+                )
             }
         }
 
         if returnedToEquilibrium {
+
             restoreCollisionSymmetry()
         }
 
         // ============================================================
-        // QUARK CONFINEMENT (no ejection)
-        //
-        // Collision energy no longer escapes the lattice as ejected
-        // up-quarks. Instead the quarks stay confined and that
-        // energy raises the shell to a higher, more energetic level.
-        // Energy stays localized rather than leaking outward, so a
-        // stronger collective resonance can develop.
+        // QUARK CONFINEMENT / BORLAGRINO / CHARGE
         // ============================================================
 
-        updateBorlagrinoAndCharge(dt: dt)
+        updateBorlagrinoAndCharge(
+            dt: dt
+        )
+
+        // ============================================================
+        // SHELL ENERGY
+        //
+        // Collision energy raises the shell once.
+        // It is not repeatedly deposited every lattice step.
+        // ============================================================
 
         if !shellEnergyElevated &&
            depositedEnergyJ > 0.0 {
@@ -4208,14 +4196,18 @@ final class QRTLSimulation: ObservableObject {
                 depositedEnergyJ
 
             energyState.shellEnergy =
-                energyState.equilibriumShellEnergy +
+                energyState.equilibriumShellEnergy
+                +
                 shellEnergyBoost
 
             let instabilityFromBoost =
                 min(
                     1.0,
                     shellEnergyBoost /
-                    max(energyState.equilibriumShellEnergy, 1.0e-30)
+                    max(
+                        energyState.equilibriumShellEnergy,
+                        1.0e-30
+                    )
                 )
 
             energyState.shellInstability =
@@ -4234,58 +4226,93 @@ final class QRTLSimulation: ObservableObject {
                 true
         }
 
-        let shellEnergy = calculateStableShellEnergy()
+        let shellEnergy =
+            calculateStableShellEnergy()
+
         _ = shellEnergy
 
         // ============================================================
-        // COLLECTIVE SIGNAL → RESONANT MODE DETECTION
+        // COLLECTIVE SIGNAL
         // ============================================================
 
         recordCollectiveSignal()
 
-        let naturalFrequency = analyzeNaturalFrequency(
-            sampleInterval: dt
-        )
+        // ============================================================
+        // NATURAL FREQUENCY
+        //
+        // Persist the measured value so evaluateHiggsLikeMode()
+        // sees the actual measured frequency.
+        // ============================================================
 
-        // Persist the measured frequency — evaluateHiggsLikeMode()
-        // reads this instance property, not the local return value,
-        // so without this assignment it always sees 0 Hz and the
-        // frequencyValid gate can never pass.
+        let naturalFrequency =
+            analyzeNaturalFrequency(
+                sampleInterval:
+                    dt
+            )
+
         naturalFrequencyHz =
             naturalFrequency
 
-        let resonantFrequency = identifyResonantMode(
-            naturalFrequency: naturalFrequency
-        )
+        // ============================================================
+        // RESONANT MODE
+        // ============================================================
+
+        let resonantFrequency =
+            identifyResonantMode(
+                naturalFrequency:
+                    naturalFrequency
+            )
 
         updateResonancePersistence(
-            naturalFrequency: resonantFrequency,
-            dt: dt
+            naturalFrequency:
+                resonantFrequency,
+            dt:
+                dt
         )
 
-        let higgsLike = evaluateHiggsLikeMode()
+        // ============================================================
+        // HIGGS-LIKE MODE
+        // ============================================================
+
+        let higgsLike =
+            evaluateHiggsLikeMode()
+
         if higgsLike {
-            print("HIGGS-LIKE RESONANT MODE DETECTED")
+
+            print(
+                "HIGGS-LIKE RESONANT MODE DETECTED"
+            )
 
             // ========================================================
-            // TARGET HIT: 125 GeV RESONANT MODE
-            //
-            // Stop the run loop and surface an alert to the UI.
-            // Guarded by `running` so this fires once per detection
-            // rather than every remaining frame before stop() takes
-            // effect.
+            // TARGET HIT
             // ========================================================
 
             if running {
-                let massText = String(format: "%.2f", resonantMassGeV)
-                let distanceText = String(format: "%.2f", massDistanceFromTarget)
+
+                let massText =
+                    String(
+                        format:
+                            "%.2f",
+                        resonantMassGeV
+                    )
+
+                let distanceText =
+                    String(
+                        format:
+                            "%.2f",
+                        massDistanceFromTarget
+                    )
 
                 higgsTargetAlertMessage =
-                    "Higgs-like resonant mode detected at \(massText) GeV " +
-                    "(target \(QRTLConstants.targetHiggsMassGeV) GeV, " +
-                    "Δ\(distanceText) GeV). Simulation stopped."
+                    "Higgs-like resonant mode detected at " +
+                    "\(massText) GeV " +
+                    "(target " +
+                    "\(QRTLConstants.targetHiggsMassGeV) GeV, " +
+                    "Δ\(distanceText) GeV). " +
+                    "Simulation stopped."
 
-                higgsTargetReached = true
+                higgsTargetReached =
+                    true
 
                 stop()
             }

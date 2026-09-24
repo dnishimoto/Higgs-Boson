@@ -145,7 +145,7 @@ enum QRTLConstants {
 
     // Softened mechanical scale so lattice state stays finite in sim units
     static let effectiveMassKg = 1.0e-24
-    static let effectiveStiffnessNPerM = 0.005699
+    static let effectiveStiffnessNPerM = 3.606e28
     static let latticeCellSpacingMeters = 1.0e-15
      static let dampingRatePerSecond = 2.0e23
     static let shellRelaxationRatePerSecond = 1.0e24
