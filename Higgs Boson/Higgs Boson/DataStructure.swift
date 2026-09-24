@@ -6,6 +6,16 @@
 //
 
 import Foundation
+enum ShellPhase {
+    case inactive
+    case forming
+    case stored
+    case released
+    case compressed
+    case releasing
+}
+
+var shellPhase: ShellPhase = .inactive
 
 struct EjectedUpQuark {
     var position: SIMD3<Float>
@@ -99,6 +109,8 @@ import Foundation
 /// for proper simulation and FFT analysis.
 
 enum QRTLConstants {
+    
+    static let shellLatticeTransferFraction = 1.0
     static let shellLifetimeSeconds = 1.0e-22
     static let joulesPerGeV = 1.602176634e-10
 
