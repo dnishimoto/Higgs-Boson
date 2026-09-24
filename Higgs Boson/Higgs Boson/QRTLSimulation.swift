@@ -858,32 +858,45 @@ final class QRTLSimulation: ObservableObject {
     }
     private func recordCollectiveSignal() {
 
-        guard !cells.isEmpty else {
-            return
-        }
+        guard !cells.isEmpty else { return }
 
-        var signal = 0.0
+        var weightedDisplacement = 0.0
+        var weightedVelocity = 0.0
+        var totalWeight = 0.0
 
         for cell in cells {
 
-            signal +=
-                cell.modeCoordinate
+            let energy = max(cell.localEnergy, 0.0)
+
+            guard energy >= QRTLConstants.activeEnergyThresholdJ else {
+                continue
+            }
+
+            let weight = energy
+
+            weightedDisplacement += Double(simd_length(cell.displacement)) * weight
+            weightedVelocity += Double(simd_length(cell.velocity)) * weight
+
+            totalWeight += weight
         }
 
-        guard signal.isFinite else {
+        guard totalWeight > 0.0 else {
+            collectiveSignal.append(0.0)
             return
         }
 
+        let collectiveDisplacement =
+            weightedDisplacement / totalWeight
+
+        let collectiveVelocity =
+            weightedVelocity / totalWeight
+
+        // Use a signed, time-dependent quantity.
+        let signal =
+            collectiveDisplacement +
+            collectiveVelocity * QRTLConstants.timeStep
+
         collectiveSignal.append(signal)
-
-        if collectiveSignal.count >
-            QRTLConstants.sampleCount {
-
-            collectiveSignal.removeFirst(
-                collectiveSignal.count -
-                QRTLConstants.sampleCount
-            )
-        }
     }
     private func evaluateHiggsLikeMode() -> Bool {
 
@@ -3059,30 +3072,7 @@ final class QRTLSimulation: ObservableObject {
             return
         }
 
-        // ============================================================
-        // PROTON COLLISION → MOMENTUM / IMPULSE
-        //
-        // IMPORTANT:
-        // This executes only once for each collision.
-        //
-        // applyProtonCollision() converts the collision kinetic energy
-        // into actual cell velocity and displacement.
-        // ============================================================
-
-
-        // ============================================================
-        // ANALYTIC OSCILLATOR
-        //
-        // x(t+h) = x cos(ωh)
-        //          + v/ω sin(ωh)
-        //
-        // v(t+h) = v cos(ωh)
-        //          - ωx sin(ωh)
-        //
-        // This preserves stability for the extremely stiff QRTL
-        // oscillator.
-        // ============================================================
-
+      
         let angle =
             omega * h
 

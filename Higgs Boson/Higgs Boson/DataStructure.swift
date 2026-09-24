@@ -108,8 +108,7 @@ enum QRTLConstants {
     static let minimumResonanceDuration: Double = 1.0
     static let stableEnergyTolerance = 0.001
     static let higgsEnergyTolerance = 0.05
-    static let higgsReferenceEnergyJ = 2.00e-8
-  static let sampleCount = 100
+  static let sampleCount = 1000
     static let phaseStiffness: Double = 0.03
     static let twistStiffness: Double = 0.08
     static let upQuarkMassKg = 3.85e-30
@@ -168,6 +167,7 @@ enum QRTLConstants {
     static let timeStep = 1.0e-27
     static let physicsStepsPerFrame = 4
     static let excitationRadius = 3.0
+    static let higgsReferenceEnergyJ = 125.0 * joulePerGeV
     static let activeEnergyThresholdJ = 2.0e-8
     static let sceneScale: Float = 0.75
 
