@@ -95,6 +95,8 @@ struct QRTLSpectralResult {
 import Foundation
 
 enum QRTLConstants {
+    static let maxLatticeVelocity = 50.0
+    static let activeEnergyThreshold = 1e-18
     static let targetLatticeFraction = 0.5
     static let joulesPerGeV = 1.602176634e-10
 
@@ -153,7 +155,6 @@ enum QRTLConstants {
 
     // Clamp lattice oscillator coordinates (prevents inf energy)
     static let maxLatticeDisplacement = 50.0
-    static let maxLatticeVelocity = 50.0
 
     static let protonRestEnergyGeV = 0.93827208816
     static let lhcProtonBeamEnergyTeV = 6.8
