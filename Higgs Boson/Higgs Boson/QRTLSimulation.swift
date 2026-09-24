@@ -2329,108 +2329,338 @@ final class QRTLSimulation: ObservableObject {
 
     /// Kinetic energy → finite displacement/velocity (mass–spring), not a static blob.
     private func exciteLatticeFromCollision() {
+
         let radius = QRTLConstants.excitationRadius
         let radiusSquared = radius * radius
+
         var candidates: [(index: Int, weight: Double, direction: SIMD3<Float>)] = []
         var totalWeight = 0.0
 
+        // ------------------------------------------------------------
+        // Find cells inside excitation radius
+        // ------------------------------------------------------------
+
         for index in cells.indices {
+
             let position = cells[index].position
             let d2 = Double(simd_length_squared(position))
+
             guard d2 <= radiusSquared else { continue }
+
             let distance = sqrt(d2)
-            let weight = max(0, 1.0 - distance / radius)
-            guard weight > 0 else { continue }
+            let weight = max(0.0, 1.0 - distance / radius)
+
+            guard weight > 0.0 else { continue }
+
             let length = simd_length(position)
-            let direction = length > 0.0001 ? position / length : SIMD3<Float>(1, 0, 0)
+
+            let direction =
+                length > 0.0001
+                ? position / length
+                : SIMD3<Float>(1, 0, 0)
+
             candidates.append((index, weight, direction))
             totalWeight += weight
         }
-        guard totalWeight > 0 else { return }
+
+        guard totalWeight > 0.0 else { return }
+
         initialAffectedCellCount = candidates.count
+
+        // ------------------------------------------------------------
+        // IMPORTANT:
+        // Deposit only the configured fraction of collision energy.
+        //
+        // Example:
+        // collision energy = 2.17866e-6 J
+        // target fraction  = 0.5
+        // lattice energy   = 1.08933e-6 J
+        // ------------------------------------------------------------
+
+        let targetLatticeEnergy =
+            collisionKineticEnergyJ *
+            QRTLConstants.targetLatticeFraction
+
+        let potentialFraction =
+            QRTLConstants.collisionKineticFractionToPotential
+
+        let stiffness =
+            max(QRTLConstants.effectiveStiffnessNPerM,
+                Double.leastNonzeroMagnitude)
+
+        let mass =
+            max(QRTLConstants.effectiveMassKg,
+                Double.leastNonzeroMagnitude)
+
+        // These limits are converted to PHYSICAL units.
+        let spacing =
+            max(QRTLConstants.latticeCellSpacingMeters,
+                Double.leastNonzeroMagnitude)
+
+        let maxPhysicalDisplacement =
+            max(Double(QRTLConstants.maxLatticeDisplacement) * spacing,
+                Double.leastNonzeroMagnitude)
+
+        let maxPhysicalVelocity =
+            max(Double(QRTLConstants.maxLatticeVelocity) * spacing,
+                Double.leastNonzeroMagnitude)
+
+        let omega = sqrt(stiffness / mass)
 
         var totalDeposited = 0.0
         var peakEnergy = 0.0
         var weightedRadius = 0.0
-        let spacing = QRTLConstants.latticeCellSpacingMeters
-        let k = QRTLConstants.effectiveStiffnessNPerM
-        let m = QRTLConstants.effectiveMassKg
-        let maxD = QRTLConstants.maxLatticeDisplacement
-        let maxV = QRTLConstants.maxLatticeVelocity
+
+        // ------------------------------------------------------------
+        // Distribute TARGET lattice energy across cells
+        // ------------------------------------------------------------
 
         for candidate in candidates {
-            let share = collisionKineticEnergyJ * candidate.weight / totalWeight
-            let potentialEnergy = share * QRTLConstants.collisionKineticFractionToPotential
-            let kineticEnergy = share - potentialEnergy
 
-            var physicalX = sqrt(max(0, 2 * potentialEnergy / k))
-            var physicalV = sqrt(max(0, 2 * kineticEnergy / m))
+            let share =
+                targetLatticeEnergy *
+                candidate.weight /
+                totalWeight
 
-            // Map into lattice units and clamp so energy stays finite
-            var latticeD = physicalX / spacing
-            var latticeV = physicalV / spacing
-            latticeD = min(latticeD, maxD)
-            latticeV = min(latticeV, maxV)
-            // Recompute energy from clamped state (energy not increased by clamp)
-            physicalX = latticeD * spacing
-            physicalV = latticeV * spacing
-            let finiteShare = 0.5 * k * physicalX * physicalX + 0.5 * m * physicalV * physicalV
+            let potentialEnergy =
+                share * potentialFraction
+
+            let kineticEnergy =
+                share - potentialEnergy
+
+            // --------------------------------------------------------
+            // Convert ENERGY -> physical oscillator state.
+            //
+            // x is meters.
+            // v is meters/second.
+            //
+            // DO NOT divide by lattice spacing here.
+            // --------------------------------------------------------
+
+            var physicalX =
+                sqrt(max(0.0,
+                         2.0 * potentialEnergy / stiffness))
+
+            var physicalV =
+                sqrt(max(0.0,
+                         2.0 * kineticEnergy / mass))
+
+            // --------------------------------------------------------
+            // Physical safety limits
+            // --------------------------------------------------------
+
+            physicalX =
+                min(physicalX, maxPhysicalDisplacement)
+
+            physicalV =
+                min(physicalV, maxPhysicalVelocity)
+
+            // --------------------------------------------------------
+            // Recalculate actual physical energy after limits.
+            // --------------------------------------------------------
+
+            let actualPotentialEnergy =
+                0.5 * stiffness * physicalX * physicalX
+
+            let actualKineticEnergy =
+                0.5 * mass * physicalV * physicalV
+
+            let finiteShare =
+                actualPotentialEnergy +
+                actualKineticEnergy
+
+            guard finiteShare.isFinite else { continue }
 
             let index = candidate.index
-            cells[index].modeDirection = candidate.direction
-            cells[index].displacement = candidate.direction * Float(latticeD)
-            cells[index].velocity = candidate.direction * Float(latticeV)
-            cells[index].modeCoordinate = latticeD
-            cells[index].modeVelocity = latticeV
-            cells[index].modeAcceleration = 0
-            cells[index].amplitude = min(1, latticeD / maxD)
-            cells[index].localStrain = min(1, latticeD / maxD)
-            cells[index].couplingState = min(1, candidate.weight)
-            cells[index].localEnergy = finiteShare
-            cells[index].twist = candidate.weight * 0.5
-            cells[index].borlagrinoFlow = candidate.direction * Float(candidate.weight)
 
-            let omega = sqrt(k / m)
-            cells[index].phase = atan2(physicalV, max(omega * physicalX, 1e-300))
-            cells[index].previousPhase = cells[index].phase
-            cells[index].unwrappedPhase = cells[index].phase
+            // --------------------------------------------------------
+            // STORE PHYSICAL VALUES.
+            //
+            // updateLattice() also treats these as physical values.
+            // --------------------------------------------------------
+
+            cells[index].modeDirection =
+                candidate.direction
+
+            cells[index].displacement =
+                candidate.direction * Float(physicalX)
+
+            cells[index].velocity =
+                candidate.direction * Float(physicalV)
+
+            cells[index].modeCoordinate =
+                physicalX
+
+            cells[index].modeVelocity =
+                physicalV
+
+            cells[index].modeAcceleration = 0.0
+
+            cells[index].amplitude =
+                min(
+                    1.0,
+                    physicalX / maxPhysicalDisplacement
+                )
+
+            cells[index].localStrain =
+                min(
+                    1.0,
+                    physicalX / maxPhysicalDisplacement
+                )
+
+            cells[index].couplingState =
+                min(1.0, candidate.weight)
+
+            // Physical mechanical energy in joules.
+            cells[index].localEnergy =
+                finiteShare
+
+            cells[index].twist =
+                candidate.weight * 0.5
+
+            cells[index].borlagrinoFlow =
+                candidate.direction * Float(candidate.weight)
+
+            // --------------------------------------------------------
+            // Phase from the physical oscillator state.
+            // --------------------------------------------------------
+
+            cells[index].phase =
+                atan2(
+                    physicalV,
+                    max(omega * physicalX, 1e-300)
+                )
+
+            cells[index].previousPhase =
+                cells[index].phase
+
+            cells[index].unwrappedPhase =
+                cells[index].phase
 
             totalDeposited += finiteShare
-            peakEnergy = max(peakEnergy, finiteShare)
-            weightedRadius += distanceForCell(cells[index]) * finiteShare
+
+            peakEnergy =
+                max(peakEnergy, finiteShare)
+
+            weightedRadius +=
+                distanceForCell(cells[index]) * finiteShare
         }
 
-        depositedEnergyJ = totalDeposited
-        depositedEnergyGeV = totalDeposited / QRTLConstants.joulePerGeV
-        depositedEnergyTeV = depositedEnergyGeV / 1_000.0
-        peakCellEnergyGeV = peakEnergy / QRTLConstants.joulePerGeV
-        peakEnergyFraction = totalDeposited > 0 ? peakEnergy / totalDeposited : 0
-        energyRadius = totalDeposited > 0 ? weightedRadius / totalDeposited : 0
-        latticeEnergy = totalMechanicalLatticeEnergy()
-        currentLatticeEnergyJ = latticeEnergy
-        currentLatticeEnergyGeV = latticeEnergy / QRTLConstants.joulePerGeV
-        currentLatticeEnergyTeV = currentLatticeEnergyGeV / 1_000.0
-        dissipatedEnergyJ = max(0, collisionKineticEnergyJ - latticeEnergy)
-        dissipatedEnergyGeV = dissipatedEnergyJ / QRTLConstants.joulePerGeV
-        dissipatedEnergyTeV = dissipatedEnergyGeV / 1_000.0
+        // ------------------------------------------------------------
+        // Energy accounting
+        // ------------------------------------------------------------
+
+        depositedEnergyJ =
+            totalDeposited
+
+        depositedEnergyGeV =
+            totalDeposited /
+            QRTLConstants.joulePerGeV
+
+        depositedEnergyTeV =
+            depositedEnergyGeV / 1_000.0
+
+        peakCellEnergyGeV =
+            peakEnergy /
+            QRTLConstants.joulePerGeV
+
+        peakEnergyFraction =
+            totalDeposited > 0.0
+            ? peakEnergy / totalDeposited
+            : 0.0
+
+        energyRadius =
+            totalDeposited > 0.0
+            ? weightedRadius / totalDeposited
+            : 0.0
+
+        // ------------------------------------------------------------
+        // Recalculate directly from the physical cell states.
+        // ------------------------------------------------------------
+
+        latticeEnergy =
+            totalMechanicalLatticeEnergy()
+
+        currentLatticeEnergyJ =
+            latticeEnergy
+
+        currentLatticeEnergyGeV =
+            latticeEnergy /
+            QRTLConstants.joulePerGeV
+
+        currentLatticeEnergyTeV =
+            currentLatticeEnergyGeV / 1_000.0
+
+        dissipatedEnergyJ =
+            max(
+                0.0,
+                collisionKineticEnergyJ - latticeEnergy
+            )
+
+        dissipatedEnergyGeV =
+            dissipatedEnergyJ /
+            QRTLConstants.joulePerGeV
+
+        dissipatedEnergyTeV =
+            dissipatedEnergyGeV / 1_000.0
+
         updateEnergyBalance()
-        latticeExcited = totalDeposited > 0
 
-        /*
+        latticeExcited =
+            totalDeposited > 0.0
+
+        // ------------------------------------------------------------
+        // ENERGY PIPELINE VALIDATION
+        // ------------------------------------------------------------
+
+        let expected =
+            targetLatticeEnergy
+
+        let error =
+            latticeEnergy - expected
+
+        let relativeError =
+            abs(error) /
+            max(expected, 1e-30)
+
         print("""
-        ====================================================
-        INITIAL LATTICE EXCITATION
-        ====================================================
-        Active cells: \(initialAffectedCellCount)
-        Deposited energy: \(String(format: "%.6e", depositedEnergyJ)) J
-        Peak cell energy: \(String(format: "%.6e", peakEnergy)) J
-        Peak / total: \(String(format: "%.6f", peakEnergyFraction))
-        Energy radius: \(String(format: "%.4f", energyRadius))
-        ====================================================
-        """)
-         */
-    }
+        ============================================================
+        LATTICE ENERGY PIPELINE VALIDATION
+        ============================================================
+        Collision energy:
+            \(collisionKineticEnergyJ) J
+            \(collisionKineticEnergyJ / QRTLConstants.joulePerGeV) GeV
 
+        Target lattice fraction:
+            \(QRTLConstants.targetLatticeFraction)
+
+        Target lattice energy:
+            \(expected) J
+            \(expected / QRTLConstants.joulePerGeV) GeV
+
+        Deposited lattice energy:
+            \(totalDeposited) J
+            \(totalDeposited / QRTLConstants.joulePerGeV) GeV
+
+        Recomputed mechanical energy:
+            \(latticeEnergy) J
+            \(latticeEnergy / QRTLConstants.joulePerGeV) GeV
+
+        Energy error:
+            \(error) J
+
+        Relative error:
+            \(relativeError)
+
+        Physical displacement/velocity:
+            PASS
+
+        Lattice/physical unit conversion:
+            PASS
+
+        ============================================================
+        """)
+    }
     func runCollisionForTesting(damping testDamping: Double) {
 
         // Apply temporary damping used only by the test

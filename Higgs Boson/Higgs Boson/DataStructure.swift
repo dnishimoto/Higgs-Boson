@@ -95,6 +95,7 @@ struct QRTLSpectralResult {
 import Foundation
 
 enum QRTLConstants {
+    static let targetLatticeFraction = 0.5
     static let joulesPerGeV = 1.602176634e-10
 
     static let targetHiggsMassGeV = 125.0
