@@ -333,6 +333,58 @@ final class QRTLSimulation: ObservableObject {
 
         scene.rootNode.addChildNode(node)
     }
+    private func updateResonantModeEnergyFromLocalizedLattice() {
+
+        guard !cells.isEmpty else {
+            resonantModeEnergyJ = 0.0
+            resonantModeEnergyGeV = 0.0
+            return
+        }
+
+        let center = SIMD3<Double>(0.0, 0.0, 0.0)
+
+        let radius = max(
+            Double(QRTLConstants.latticeSize) / 4.0,
+            1.0
+        )
+
+        var localizedEnergyJ = 0.0
+
+        for index in cells.indices {
+
+            let position = SIMD3<Double>(
+                Double(cells[index].position.x),
+                Double(cells[index].position.y),
+                Double(cells[index].position.z)
+            )
+
+            let distance = simd_distance(position, center)
+
+            guard distance <= radius else {
+                continue
+            }
+
+            let energy = cells[index].localEnergy
+
+            if energy.isFinite && energy > 0.0 {
+                localizedEnergyJ += energy
+            }
+        }
+
+        guard localizedEnergyJ.isFinite,
+              localizedEnergyJ >= 0.0 else {
+
+            resonantModeEnergyJ = 0.0
+            resonantModeEnergyGeV = 0.0
+            return
+        }
+
+        resonantModeEnergyJ = localizedEnergyJ
+
+        resonantModeEnergyGeV =
+            localizedEnergyJ /
+            QRTLConstants.joulesPerGeV
+    }
     private func initializeCollisionQuarks() {
         let xA = protonAX
         let xB = protonBX
@@ -1922,49 +1974,86 @@ final class QRTLSimulation: ObservableObject {
 
         simulationTime += visualDt
 
+        // ============================================================
         // 1. PROTON APPROACH
+        // ============================================================
+
         if !collisionOccurred {
+
             updateProtonApproach(dt: visualDt)
 
             protonDistance = abs(protonBX - protonAX)
 
             if protonAState == "COLLISION" &&
                protonBState == "COLLISION" {
+
                 performCollision()
+
                 shellActive = true
             }
         }
 
         // ============================================================
-        // 10^-22 SECOND SHELL DISSIPATION
+        // 2. 10^-22 SECOND SHELL DISSIPATION
         // ============================================================
 
         updateShellDissipationTrigger()
 
-        // 4. EVOLVE EXISTING COLLISION ENERGY
+        // ============================================================
+        // 3. EVOLVE EXISTING COLLISION ENERGY
+        // ============================================================
+
         updateCollisionDynamics(dt: dt)
 
-        // 5. SHELL DYNAMICS
-        if !quarkCompressionActive && !quarkRepulsionActive {
+        // ============================================================
+        // 4. SHELL DYNAMICS
+        // ============================================================
+
+        if !quarkCompressionActive &&
+           !quarkRepulsionActive {
+
             updateShellState(dt: visualDt)
         }
 
-        // 6. QRTL LATTICE DYNAMICS
+        // ============================================================
+        // 5. QRTL LATTICE DYNAMICS
+        // ============================================================
+
         updateLattice(dt: dt)
 
-        // 7. PHASE / BORLAGRINO
+        // ============================================================
+        // 6. PHASE / BORLAGRINO
+        // ============================================================
+
         updateCellPhase(dt: dt)
+
         updateBorlagrinoFlow()
 
-        // 8. COLLECTIVE RESONANCE
+        // ============================================================
+        // 7. COLLECTIVE RESONANCE
+        // ============================================================
+
         measureCollectiveMode()
+
         recordCollectiveLatticeSignal()
 
+        // ============================================================
+        // 8. LOCALIZED QRTL QUARK-LATTICE ENERGY
+        // ============================================================
+
+        updateResonantModeEnergyFromLocalizedLattice()
+
+        // ============================================================
         // 9. HIGGS-LIKE MODE
+        // ============================================================
+
         updateHiggsLikeMode(dt: dt)
 
+        // ============================================================
         // 10. ENERGY DIAGNOSTICS
-        //printCollisionEnergyState()
+        // ============================================================
+
+        // printCollisionEnergyState()
     }
     /// Rescale lattice (x, v) so total mechanical energy does not exceed
     /// collisionKineticEnergyJ.
