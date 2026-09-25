@@ -660,6 +660,8 @@ final class QRTLSimulation: ObservableObject {
             helium2DissolutionDetected = true
             helium2StableBoundState = false
         }
+        
+        /*
 
         // --------------------------------------------------------
         // Debug
@@ -708,6 +710,7 @@ final class QRTLSimulation: ObservableObject {
 
         ========================================================
         """)
+         */
     }
   
    
@@ -1298,10 +1301,53 @@ final class QRTLSimulation: ObservableObject {
             return false
         }
 
+        // ============================================================
+        // LATTICE ENERGY ACCOUNTING
+        // ============================================================
+
+        let totalLatticeEnergy =
+            cells.reduce(0.0) {
+                $0 + $1.localEnergy
+            }
+
+        let peakCellEnergy =
+            cells.map(\.localEnergy).max() ?? 0.0
+
+        let activeCellCount =
+            cells.filter {
+                $0.localEnergy >= 1e-18
+            }.count
+
+        let latticeEnergyFraction =
+            totalLatticeEnergy / initialEnergy
+
+        let energyOutsideLattice =
+            max(
+                0.0,
+                initialEnergy - totalLatticeEnergy
+            )
+
+        let shellEnergyRemaining =
+            max(
+                0.0,
+                shellStoredEnergyJ
+            )
+
+        let accountedEnergy =
+            totalLatticeEnergy +
+            shellEnergyRemaining
+
+        let unaccountedEnergy =
+            initialEnergy -
+            accountedEnergy
+
+        // ============================================================
+        // EXISTING HIGGS-LIKE MODE TESTS
+        // ============================================================
+
         let energyConserved =
             checkEnergyConservation(
-                initialEnergy:
-                    initialEnergy
+                initialEnergy: initialEnergy
             )
 
         let stableShell =
@@ -1332,33 +1378,98 @@ final class QRTLSimulation: ObservableObject {
             coherent &&
             energyMatch
 
+        // ============================================================
+        // LATTICE ENERGY TRACE
+        // ============================================================
+
         print("""
-        
+        ============================================================
+        LATTICE ENERGY ACCOUNTING
+        ============================================================
+
+        Initial collision energy:
+            \(initialEnergy) J
+
+        Initial collision energy:
+            \(initialEnergy / QRTLConstants.joulesPerGeV) GeV
+
+        Shell energy remaining:
+            \(shellEnergyRemaining) J
+
+        Shell energy remaining:
+            \(shellEnergyRemaining / QRTLConstants.joulesPerGeV) GeV
+
+        Total lattice energy:
+            \(totalLatticeEnergy) J
+
+        Total lattice energy:
+            \(totalLatticeEnergy / QRTLConstants.joulesPerGeV) GeV
+
+        Peak cell energy:
+            \(peakCellEnergy) J
+
+        Peak cell energy:
+            \(peakCellEnergy / QRTLConstants.joulesPerGeV) GeV
+
+        Active cells:
+            \(activeCellCount)
+
+        Lattice energy fraction:
+            \(latticeEnergyFraction)
+
+        Energy outside lattice:
+            \(energyOutsideLattice) J
+
+        Accounted energy:
+            \(accountedEnergy) J
+
+        Unaccounted energy:
+            \(unaccountedEnergy) J
+
+        ============================================================
+        RESONANT ENERGY
+        ============================================================
+
+        Resonant mode energy:
+            \(resonantModeEnergyJ) J
+
+        Resonant mode energy:
+            \(resonantModeEnergyJ / QRTLConstants.joulesPerGeV) GeV
+
+        ============================================================
         HIGGS-LIKE MODE EVALUATION
-        
+        ============================================================
+
         Energy conserved:
             \(energyConserved)
-        
+
         Stable shell:
             \(stableShell)
-        
+
         Natural frequency:
             \(naturalFrequencyHz) Hz
-        
+
+        Frequency valid:
+            \(frequencyValid)
+
         Resonance persistent:
             \(resonancePersistent)
-        
+
         Coherence:
             \(collectiveCoherence)
-        
+
+        Coherent:
+            \(coherent)
+
         Energy match:
             \(energyMatch)
-        
+
         Candidate mode:
             \(candidate)
-        
-        """)
 
+        ============================================================
+        """)
+        
         return candidate
     }
     private func isWithinHiggsEnergyWindow(
@@ -1476,6 +1587,7 @@ final class QRTLSimulation: ObservableObject {
 
         let tolerance = 0.05
 
+        /*
         print("""
         
         ENERGY CONSERVATION
@@ -1496,6 +1608,7 @@ final class QRTLSimulation: ObservableObject {
             \(relativeError)
         
         """)
+         */
         
         return relativeError <= tolerance
     }
@@ -1614,180 +1727,7 @@ final class QRTLSimulation: ObservableObject {
                 velocity * Float(dt)
         }
     }
-    private func createEjectedUpQuarks(
-        collisionEnergyJ: Double,
-        collisionCenter: SIMD3<Float>
-    ) {
-
-        guard collisionEnergyJ > 0.0 else {
-            return
-        }
-
-        let outgoingEnergyFraction = 0.50
-
-        let totalEjectedEnergy =
-            collisionEnergyJ *
-            outgoingEnergyFraction
-
-        let energyPerParticle =
-            totalEjectedEnergy / 2.0
-
-        let upQuarkMassKg =
-            QRTLConstants.upQuarkMassKg
-
-        guard upQuarkMassKg > 0.0 else {
-            return
-        }
-
-        // Relativistic energy-momentum relation:
-        //
-        // E² = (pc)² + (mc²)²
-
-        let c =
-            QRTLConstants.speedOfLight
-
-        let restEnergy =
-            upQuarkMassKg * c * c
-
-        guard energyPerParticle > restEnergy else {
-            return
-        }
-
-        let momentumMagnitude =
-            sqrt(
-                max(
-                    0.0,
-                    energyPerParticle *
-                    energyPerParticle -
-                    restEnergy *
-                    restEnergy
-                )
-            ) / c
-
-        let totalEnergy =
-            energyPerParticle
-
-        let gamma =
-            totalEnergy / restEnergy
-
-        let beta =
-            sqrt(
-                max(
-                    0.0,
-                    1.0 -
-                    1.0 / (gamma * gamma)
-                )
-            )
-
-        let speed =
-            beta * c
-
-        let momentum =
-            momentumMagnitude
-
-        let directionA =
-            SIMD3<Float>(
-                1.0,
-                0.0,
-                0.0
-            )
-
-        let directionB =
-            SIMD3<Float>(
-                -1.0,
-                0.0,
-                0.0
-            )
-
-        let velocityA =
-            directionA *
-            Float(speed)
-
-        let velocityB =
-            directionB *
-            Float(speed)
-
-        let momentumA =
-            directionA *
-            Float(momentum)
-        
-        let momentumB =
-            directionB *
-            Float(momentum)
-
-        let offset: Float = 0.5
-
-        ejectedUpQuarks = [
-
-            EjectedUpQuark(
-                position:
-                    collisionCenter +
-                    SIMD3<Float>(
-                        offset,
-                        0.0,
-                        0.0
-                    ),
-
-                velocity:
-                    velocityA,
-
-                momentum:
-                    momentumA,
-
-                energyJ:
-                    energyPerParticle,
-
-                active:
-                    true
-            ),
-
-            EjectedUpQuark(
-                position:
-                    collisionCenter +
-                    SIMD3<Float>(
-                        -offset,
-                        0.0,
-                        0.0
-                    ),
-
-                velocity:
-                    velocityB,
-
-                momentum:
-                    momentumB,
-
-                energyJ:
-                    energyPerParticle,
-
-                active:
-                    true
-            )
-        ]
-
-        ejectedEnergyJ =
-            totalEjectedEnergy
-
-        print("""
-        
-        EJECTED UP QUARKS
-        
-        Number:
-            \(ejectedUpQuarks.count)
-        
-        Energy per particle:
-            \(energyPerParticle) J
-        
-        Total ejected energy:
-            \(ejectedEnergyJ) J
-        
-        Speed:
-            \(speed) m/s
-        
-        Momentum per particle:
-            \(momentum) kg·m/s
-        
-        """)
-    }
+ 
     private func createQuarkNodes() {
         func make(_ color: UIColor) -> SCNNode {
             let g = SCNSphere(radius: 0.12)
@@ -2019,7 +1959,7 @@ final class QRTLSimulation: ObservableObject {
         updateHiggsLikeMode(dt: dt)
 
         // 10. ENERGY DIAGNOSTICS
-        printCollisionEnergyState()
+        //printCollisionEnergyState()
     }
     private func updateCollisionDynamics(dt: Double) {
 
@@ -2673,6 +2613,7 @@ final class QRTLSimulation: ObservableObject {
             protonAState = "COLLISION"
             protonBState = "COLLISION"
 
+            /*
             print("""
             ============================================================
             QRTL PROTON COLLISION DETECTED
@@ -2685,6 +2626,7 @@ final class QRTLSimulation: ObservableObject {
 
             ============================================================
             """)
+             */
 
         } else {
 
@@ -2826,6 +2768,7 @@ final class QRTLSimulation: ObservableObject {
         //
         // updateEnergyShell() controls that later transition.
         // ============================================================
+
 
         print("""
         ============================================================
@@ -3061,7 +3004,7 @@ final class QRTLSimulation: ObservableObject {
         // --------------------------------------------------------
 
         guard collectiveSignal.count >= 8 else {
-
+/*
             print("""
             ========================================================
             RESONANCE TEST
@@ -3070,6 +3013,7 @@ final class QRTLSimulation: ObservableObject {
                 \(collectiveSignal.count)
             ========================================================
             """)
+ */
 
             testDampingOverride = nil
             return
@@ -3690,17 +3634,6 @@ final class QRTLSimulation: ObservableObject {
             // Store the incoming collision energy in the shell.
             shellStoredEnergyJ = collisionKineticEnergyJ
 
-            print("""
-            ============================================================
-            QRTL ENERGY SHELL FORMED
-            ============================================================
-            Collision energy:
-                \(collisionKineticEnergyJ) J
-
-            Shell stored energy:
-                \(shellStoredEnergyJ) J
-            ============================================================
-            """)
         }
 
         // ============================================================
@@ -3770,18 +3703,6 @@ final class QRTLSimulation: ObservableObject {
         }
 
         guard !activeIndices.isEmpty else {
-
-            print("""
-            ============================================================
-            ⚠️ SHELL RELEASE BLOCKED
-            ============================================================
-            No active lattice cells available.
-
-            Shell energy:
-                \(releasedEnergyJ) J
-            ============================================================
-            """)
-
             return
         }
 
@@ -3986,53 +3907,43 @@ final class QRTLSimulation: ObservableObject {
 
         // Shell no longer owns the released energy.
         shellStoredEnergyJ = 0.0
-
-        // ============================================================
-        // RELEASE DIAGNOSTICS
-        // ============================================================
-
+      updateEnergyShellVisual()
+        updateEnergyShellPulse()
         print("""
         ============================================================
-        QRTL SHELL → LATTICE KINETIC ENERGY TRANSFER
+        ENERGY LOCATION — BEFORE SHELL UPDATE
         ============================================================
 
-        Released shell energy:
-            \(releasedEnergyJ) J
+        ENERGY SHELL
+            Shell stored energy:
+                \(shellStoredEnergyJ) J
+            Shell stored energy:
+                \(shellStoredEnergyJ / QRTLConstants.joulesPerGeV) GeV
+            Shell active:
+                \(shellActive)
+            Shell released:
+                \(shellEnergyReleased)
 
-        Active lattice cells:
-            \(activeIndices.count)
+        LATTICE
+            Total lattice energy:
+                \(cells.reduce(0.0) { $0 + $1.localEnergy }) J
+            Total lattice energy:
+                \(cells.reduce(0.0) { $0 + $1.localEnergy } /
+                  QRTLConstants.joulesPerGeV) GeV
+            Active cells:
+                \(cells.filter {
+                    $0.localEnergy >= QRTLConstants.activeEnergyThreshold
+                }.count)
 
-        Energy per cell:
-            \(energyPerCell) J
-
-        Effective cell mass:
-            \(cellMassKg) kg
-
-        Injected velocity:
-            \(velocityMagnitude) m/s
-
-        Measured kinetic energy:
-            \(injectedKineticEnergyJ) J
-
-        Energy transfer error:
-            \(transferErrorJ) J
-
-        Relative transfer error:
-            \(transferErrorFraction)
-
-        Shell energy remaining:
-            \(shellStoredEnergyJ) J
-
-        Shell released:
-            \(shellEnergyReleased)
-
-        Shell phase:
-            \(shellPhase)
+        ENERGY ACCOUNTING
+            Collision energy:
+                \(collisionKineticEnergyJ) J
+            Collision energy:
+                \(collisionKineticEnergyJ /
+                  QRTLConstants.joulesPerGeV) GeV
 
         ============================================================
         """)
-        updateEnergyShellVisual()
-        updateEnergyShellPulse()
     }
     private func injectShellEnergyIntoLattice(energyJ: Double) {
 
@@ -4224,6 +4135,46 @@ final class QRTLSimulation: ObservableObject {
         shellEnergyReleased = true
         shellActive = false
         shellPhase = .released
+        
+        
+        let totalLatticeEnergyAfterRelease =
+            cells.reduce(0.0) {
+                $0 + $1.localEnergy
+            }
+
+        let peakLatticeEnergyAfterRelease =
+            cells.map(\.localEnergy).max() ?? 0.0
+
+        let activeCellsAfterRelease =
+            cells.filter {
+                $0.localEnergy >= 1e-18
+            }.count
+
+        print("""
+        ============================================================
+        AFTER SHELL ENERGY RELEASE
+        ============================================================
+
+        Shell stored energy:
+            \(shellStoredEnergyJ) J
+
+        Shell released:
+            \(shellEnergyReleased)
+
+        Lattice excited:
+            \(latticeExcited)
+
+        Total lattice energy:
+            \(totalLatticeEnergyAfterRelease) J
+
+        Peak cell energy:
+            \(peakLatticeEnergyAfterRelease) J
+
+        Active cells:
+            \(activeCellsAfterRelease)
+
+        ============================================================
+        """)
     }
     private func physicalEnergy(
         displacement: SIMD3<Float>,
@@ -5026,6 +4977,7 @@ final class QRTLSimulation: ObservableObject {
 
             collectiveCoherence = 0.0
 
+            /*
             print("""
             
             ===== COLLECTIVE COHERENCE DEBUG =====
@@ -5062,6 +5014,7 @@ final class QRTLSimulation: ObservableObject {
             =======================================
 
             """)
+             */
 
             return
         }
@@ -5093,7 +5046,7 @@ final class QRTLSimulation: ObservableObject {
 
         resonantModeEnergy =
             resonantModeEnergyJ
-
+/*
         print("""
         
         ===== COLLECTIVE COHERENCE DEBUG =====
@@ -5140,6 +5093,7 @@ final class QRTLSimulation: ObservableObject {
         =========================================
 
         """)
+ */
     }
     private func normalizedCollisionDirection() -> SIMD3<Float> {
 

@@ -3,4 +3,22 @@
    uuid = "E5DBB5CE-A283-40A9-8F1F-DA9F327926C7"
    type = "1"
    version = "2.0">
+   <Breakpoints>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            uuid = "7E5F6F78-623F-46C4-826C-6A592133A917"
+            shouldBeEnabled = "No"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "Higgs Boson/QRTLSimulation.swift"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "4178"
+            endingLineNumber = "4178"
+            landmarkName = "releaseShellEnergyIntoLattice()"
+            landmarkType = "7">
+         </BreakpointContent>
+      </BreakpointProxy>
+   </Breakpoints>
 </Bucket>
