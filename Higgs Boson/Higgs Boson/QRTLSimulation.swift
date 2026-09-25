@@ -384,6 +384,33 @@ final class QRTLSimulation: ObservableObject {
         resonantModeEnergyGeV =
             localizedEnergyJ /
             QRTLConstants.joulesPerGeV
+        
+        print("""
+        ============================================================
+        QRTL RESONANCE ENERGY
+        ============================================================
+        Collision energy:
+            \(collisionKineticEnergyJ / QRTLConstants.joulesPerGeV) GeV
+
+        Total lattice energy:
+            \(latticeEnergy / QRTLConstants.joulesPerGeV) GeV
+
+        Localized resonant energy:
+            \(resonantModeEnergyGeV) GeV
+
+        Target:
+            \(QRTLConstants.targetHiggsMassGeV) GeV
+
+        Target ratio:
+            \(resonantModeEnergyGeV /
+              QRTLConstants.targetHiggsMassGeV)
+
+        Missing energy:
+            \(max(0.0,
+                 QRTLConstants.targetHiggsMassGeV -
+                 resonantModeEnergyGeV)) GeV
+        ============================================================
+        """)
     }
     private func initializeCollisionQuarks() {
         let xA = protonAX
@@ -2619,40 +2646,87 @@ final class QRTLSimulation: ObservableObject {
         collisionOccurred = true
 
         // ============================================================
-        // 1. ACTUAL PROTON COLLISION ENERGY
+        // 1. RELATIVISTIC PROTON COLLISION ENERGY
         // ============================================================
 
-        let protonMassKg = 1.67262192369e-27
+        let protonMassKg =
+            QRTLConstants.protonMassKg
 
+        let c =
+            QRTLConstants.speedOfLight
+
+        // Each proton has approximately 4,000 GeV
+        // of kinetic beam energy.
+        let protonBeamEnergyGeV = 4_000.0
+
+        // Proton rest energy: E = mc²
+        let protonRestEnergyJ =
+            protonMassKg * c * c
+
+        let protonRestEnergyGeV =
+            protonRestEnergyJ /
+            QRTLConstants.joulesPerGeV
+
+        // Relativistic Lorentz factor:
+        // K = (γ - 1)mc²
+        let gamma =
+            1.0 +
+            protonBeamEnergyGeV /
+            protonRestEnergyGeV
+
+        // Relativistic proton velocity.
         let protonVelocityMPerS =
-            0.99 * 299_792_458.0
+            c * sqrt(
+                1.0 -
+                1.0 / (gamma * gamma)
+            )
 
+        // Kinetic energy of one proton.
+        let protonKineticEnergyJ =
+            (gamma - 1.0) *
+            protonRestEnergyJ
+
+        // Two opposing proton beams.
         let kineticEnergyJ =
-            0.5 *
-            protonMassKg *
-            protonVelocityMPerS *
-            protonVelocityMPerS
+            2.0 * protonKineticEnergyJ
 
         // ============================================================
-        // 2. STORE COLLISION ENERGY
+        // 2. COLLISION ENERGY CHECK
         // ============================================================
 
-        collisionKineticEnergyJ = kineticEnergyJ
+        let calculatedCollisionEnergyGeV =
+            kineticEnergyJ /
+            QRTLConstants.joulesPerGeV
+
+        let expectedCollisionEnergyGeV =
+            8_000.0
+
+        let collisionEnergyDifferenceGeV =
+            calculatedCollisionEnergyGeV -
+            expectedCollisionEnergyGeV
+
+        let absoluteCollisionEnergyDifferenceGeV =
+            abs(collisionEnergyDifferenceGeV)
 
         // ============================================================
-        // 3. ACTIVATE QRTL ENERGY SHELL
+        // 3. STORE COLLISION ENERGY
+        // ============================================================
+
+        collisionKineticEnergyJ =
+            kineticEnergyJ
+
+        // ============================================================
+        // 4. ACTIVATE QRTL ENERGY SHELL
         // ============================================================
 
         shellActive = true
         shellEnergyReleased = false
-
         shellPhase = .forming
-
         shellFormationTime = 0.0
         shellStoredEnergyJ = kineticEnergyJ
 
         // ============================================================
-        // 4. RESET SHELL DYNAMICS
+        // 5. RESET SHELL DYNAMICS
         // ============================================================
 
         shellCompression = 0.0
@@ -2660,26 +2734,21 @@ final class QRTLSimulation: ObservableObject {
         shellInstability = 0.0
 
         // ============================================================
-        // 5. RESET COLLISION DYNAMICS
+        // 6. RESET COLLISION DYNAMICS
         // ============================================================
 
         collisionElapsedTime = 0.0
-
         energyShellDissipationTriggered = false
-
-        // The shell has the energy, but the lattice has not
-        // received that energy yet.
         latticeExcited = false
 
         // ============================================================
-        // 6. RESET RESONANCE STATE
+        // 7. RESET RESONANCE STATE
         // ============================================================
 
         collectiveSignal.removeAll(keepingCapacity: true)
 
         naturalAngularFrequency = 0.0
         naturalFrequencyHz = 0.0
-
         resonantModeAmplitude = 0.0
         resonantModeEnergy = 0.0
 
@@ -2687,73 +2756,99 @@ final class QRTLSimulation: ObservableObject {
         resonancePersistence = 0.0
 
         // ============================================================
-        // 7. RESET SHELL / STABILITY STATE
+        // 8. RESET SHELL / STABILITY STATE
         // ============================================================
 
         isUnstable = true
 
         // ============================================================
-        // 8. UPDATE ENERGY STATE
+        // 9. UPDATE ENERGY STATE
         // ============================================================
 
-        energyState.shellEnergy = kineticEnergyJ
-        energyState.equilibriumShellEnergy = kineticEnergyJ
+        energyState.shellEnergy =
+            kineticEnergyJ
+
+        energyState.equilibriumShellEnergy =
+            kineticEnergyJ
+
         energyState.deformation = 0.0
         energyState.shellInstability = 0.0
         energyState.isUnstable = true
 
         // ============================================================
-        // 9. UPDATE VISUAL ENERGY SHELL
+        // 10. UPDATE VISUAL ENERGY SHELL
         // ============================================================
 
         updateEnergyShellVisual()
         updateEnergyShellPulse()
 
         // ============================================================
-        // IMPORTANT
-        //
-        // Do NOT set latticeExcited = true here.
-        //
-        // The intended sequence is:
-        //
-        // collision
-        //     ↓
-        // shell formation
-        //     ↓
-        // shell compression
-        //     ↓
-        // shell instability
-        //     ↓
-        // shell release
-        //     ↓
-        // lattice excitation
-        //
-        // updateEnergyShell() controls that later transition.
+        // 11. DEBUG OUTPUT
         // ============================================================
-
 
         print("""
         ============================================================
-        QRTL PROTON COLLISION
+        QRTL RELATIVISTIC PROTON COLLISION
         ============================================================
+
+        Proton mass:
+            \(protonMassKg) kg
+
+        Proton rest energy:
+            \(protonRestEnergyGeV) GeV
+
+        Proton beam kinetic energy:
+            \(protonBeamEnergyGeV) GeV
+
+        Lorentz factor:
+            \(gamma)
+
+        Proton velocity:
+            \(protonVelocityMPerS) m/s
+
+        Proton velocity / c:
+            \(protonVelocityMPerS / c)
+
+        ------------------------------------------------------------
+        COLLISION ENERGY
+        ------------------------------------------------------------
+
+        Proton A:
+            \(protonBeamEnergyGeV) GeV
+
+        Proton B:
+            \(protonBeamEnergyGeV) GeV
+
+        Calculated collision energy:
+            \(calculatedCollisionEnergyGeV) GeV
+
+        Expected collision energy:
+            \(expectedCollisionEnergyGeV) GeV
+
+        Difference:
+            \(collisionEnergyDifferenceGeV) GeV
+
+        Absolute difference:
+            \(absoluteCollisionEnergyDifferenceGeV) GeV
 
         Collision energy:
             \(kineticEnergyJ) J
 
-        Collision energy:
-            \(kineticEnergyJ / QRTLConstants.joulesPerGeV) GeV
+        ------------------------------------------------------------
+        ENERGY SHELL
+        ------------------------------------------------------------
+
+        Shell stored energy:
+            \(shellStoredEnergyJ) J
+
+        Shell stored energy:
+            \(shellStoredEnergyJ / QRTLConstants.joulesPerGeV) GeV
 
         Shell active:
             \(shellActive)
 
         Shell phase:
             \(shellPhase)
-
-        Shell stored energy:
-            \(shellStoredEnergyJ) J
-
-        Shell energy:
-            \(shellStoredEnergyJ / QRTLConstants.joulesPerGeV) GeV
 
         Shell released:
             \(shellEnergyReleased)
@@ -2773,7 +2868,6 @@ final class QRTLSimulation: ObservableObject {
         ============================================================
         """)
     }
-
     private func updateEnergyShellPulse() {
 
         guard let shellNode = energyShellNode else {

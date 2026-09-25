@@ -14,9 +14,25 @@
             filePath = "Higgs Boson/QRTLSimulation.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "4690"
-            endingLineNumber = "4690"
+            startingLineNumber = "4784"
+            endingLineNumber = "4784"
             landmarkName = "updateLattice(dt:)"
+            landmarkType = "7">
+         </BreakpointContent>
+      </BreakpointProxy>
+      <BreakpointProxy
+         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
+         <BreakpointContent
+            uuid = "D6462888-151A-4E0D-B4C2-39D38A0A225C"
+            shouldBeEnabled = "No"
+            ignoreCount = "0"
+            continueAfterRunningActions = "No"
+            filePath = "Higgs Boson/QRTLSimulation.swift"
+            startingColumnNumber = "9223372036854775807"
+            endingColumnNumber = "9223372036854775807"
+            startingLineNumber = "414"
+            endingLineNumber = "414"
+            landmarkName = "updateResonantModeEnergyFromLocalizedLattice()"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>

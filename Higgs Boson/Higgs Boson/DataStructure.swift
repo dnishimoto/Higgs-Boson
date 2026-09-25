@@ -119,6 +119,19 @@ struct EnergyState {
     var isUnstable: Bool = false
 }
 enum QRTLConstants {
+
+    static let collisionEnergyGeV: Double = 8_000.0
+
+    /// Collision energy in joules.
+    static let collisionKineticEnergyJ: Double =
+        collisionEnergyGeV * joulesPerGeV
+
+    /// Same collision budget expressed explicitly for diagnostics.
+    static let protonProtonCollisionEnergyGeV: Double =
+        collisionEnergyGeV
+
+    static let protonProtonCollisionEnergyJ: Double =
+        collisionEnergyGeV * joulesPerGeV
     static let maximumSimulationVelocityMPerS =
         299_792_458.0
     static let shellLatticeTransferFraction = 1.0
@@ -217,12 +230,6 @@ enum QRTLConstants {
         (lhcLorentzFactor - 1.0) * protonRestEnergyGeV
     static let twoProtonKineticEnergyGeV =
         2.0 * singleProtonKineticEnergyGeV
-    static let protonProtonCollisionEnergyGeV =
-        2.0 * lhcProtonBeamEnergyGeV
-    static let collisionKineticEnergyJ =
-        twoProtonKineticEnergyGeV * joulePerGeV
-    static let protonProtonCollisionEnergyJ =
-        protonProtonCollisionEnergyGeV * joulePerGeV
 
     static let initialProtonX = 6.0
     static let protonSpeed = 4.0
