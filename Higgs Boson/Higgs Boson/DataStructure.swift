@@ -136,7 +136,9 @@ enum QRTLConstants {
         299_792_458.0
     static let shellLatticeTransferFraction = 1.0
     static let shellLifetimeSeconds = 1.0e-22
+    static let joulesPerMeV = 1.602176634e-13
     static let joulesPerGeV = 1.602176634e-10
+    static let joulesPerTeV = 1.602176634e-7
 
      static let targetHiggsMassGeV = 125.0
 
