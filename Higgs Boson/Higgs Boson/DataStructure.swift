@@ -107,7 +107,17 @@ import Foundation
 /// QRTLConstants holds fundamental physical and simulation parameters.
 /// Correct mechanical energy injection and spectralSampleInterval synchrony are crucial
 /// for proper simulation and FFT analysis.
+struct EnergyState {
 
+    var shellEnergy: Double = 0.0
+    var equilibriumShellEnergy: Double = 0.0
+
+    var shellCompression: Double = 0.0
+    var deformation: Double = 0.0
+    var shellInstability: Double = 0.0
+
+    var isUnstable: Bool = false
+}
 enum QRTLConstants {
     
     static let shellLatticeTransferFraction = 1.0

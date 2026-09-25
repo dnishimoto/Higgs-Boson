@@ -5,6 +5,23 @@ import simd
 import Combine
 
 final class QRTLSimulation: ObservableObject {
+    @State private var isUnstable = false
+    
+    @Published private(set) var shellCompression: Double = 0.0
+
+    @Published private(set) var shellDeformation: Double = 0.0
+
+    @Published private(set) var shellInstability: Double = 0.0
+    
+    private var energyShellNode: SCNNode?
+
+    private let shellMinimumRadius: CGFloat = 0.65
+    private let shellMaximumRadius: CGFloat = 3.0
+
+    private let shellMinimumOpacity: CGFloat = 0.08
+    private let shellMaximumOpacity: CGFloat = 0.55
+
+    private let shellBaseEnergyJ: Double = 1.0e-12
     
     private var collisionOccurredTime: Double = 0.0
     private var energyShellDissipationTriggered = false
@@ -223,6 +240,7 @@ final class QRTLSimulation: ObservableObject {
         createHiggsNode()
         initializeCollisionQuarks()
         createQuarkNodes()
+        createEnergyShell()
     }
 
     // MARK: - Scene setup (unchanged structure)
@@ -259,6 +277,59 @@ final class QRTLSimulation: ObservableObject {
         scene.rootNode.addChildNode(lightNode)
     }
 
+    private func createEnergyShell() {
+
+        // Remove an existing shell first
+        energyShellNode?.removeFromParentNode()
+
+        let sphere = SCNSphere(
+            radius: shellMinimumRadius
+        )
+
+        sphere.segmentCount = 64
+
+        let material = SCNMaterial()
+
+        material.diffuse.contents = UIColor(
+            red: 0.1,
+            green: 0.8,
+            blue: 1.0,
+            alpha: 0.25
+        )
+
+        material.emission.contents = UIColor(
+            red: 0.05,
+            green: 0.4,
+            blue: 1.0,
+            alpha: 0.35
+        )
+
+        material.transparency = 0.25
+
+        material.isDoubleSided = true
+
+        material.lightingModel = .physicallyBased
+
+        material.metalness.contents = 0.0
+        material.roughness.contents = 0.15
+
+        // Important for a transparent shell.
+        material.blendMode = .alpha
+
+        sphere.materials = [material]
+
+        let node = SCNNode(
+            geometry: sphere
+        )
+
+        node.name = "QRTL_Energy_Shell"
+
+        node.opacity = 0.0
+
+        energyShellNode = node
+
+        scene.rootNode.addChildNode(node)
+    }
     private func initializeCollisionQuarks() {
         let xA = protonAX
         let xB = protonBX
@@ -284,6 +355,149 @@ final class QRTLSimulation: ObservableObject {
                            position: SIMD3(xB, 0, 0.18), velocity: .zero,
                            originalPosition: SIMD3(xB, 0, 0.18))
         ]
+    }
+
+
+    private func updateEnergyShellVisual() {
+
+        guard let shellNode = energyShellNode,
+              let sphere = shellNode.geometry as? SCNSphere
+        else {
+            return
+        }
+
+        let energyJ = max(
+            0.0,
+            shellStoredEnergyJ
+        )
+
+        // --------------------------------------------------------
+        // Normalize energy
+        // --------------------------------------------------------
+
+        let normalizedEnergy: Double
+
+        if energyJ <= 0.0 {
+            normalizedEnergy = 0.0
+        } else {
+            normalizedEnergy = min(
+                1.0,
+                energyJ / shellBaseEnergyJ
+            )
+        }
+
+        // --------------------------------------------------------
+        // Radius
+        //
+        // More energy = larger shell.
+        // --------------------------------------------------------
+
+        let radius =
+            shellMinimumRadius +
+            CGFloat(normalizedEnergy) *
+            (shellMaximumRadius - shellMinimumRadius)
+
+        sphere.radius = radius
+
+        // --------------------------------------------------------
+        // Opacity
+        //
+        // More energy = more visible shell.
+        // --------------------------------------------------------
+
+        let opacity =
+            shellMinimumOpacity +
+            CGFloat(normalizedEnergy) *
+            (shellMaximumOpacity - shellMinimumOpacity)
+
+        shellNode.opacity = opacity
+
+        // --------------------------------------------------------
+        // ENERGY COLOR
+        //
+        // Low:
+        //     cyan / blue
+        //
+        // Medium:
+        //     purple / magenta
+        //
+        // High:
+        //     orange / red
+        // --------------------------------------------------------
+
+        let color = energyShellColor(
+            normalizedEnergy: normalizedEnergy
+        )
+
+        shellNode.geometry?.firstMaterial?.diffuse.contents =
+            color
+
+        shellNode.geometry?.firstMaterial?.emission.contents =
+            color
+
+        // --------------------------------------------------------
+        // Shell position
+        //
+        // Center it on the collision region.
+        // --------------------------------------------------------
+
+        shellNode.position = SCNVector3(
+            0.0,
+            0.0,
+            0.0
+        )
+
+        // --------------------------------------------------------
+        // Released shell fades out.
+        // --------------------------------------------------------
+
+        if shellEnergyReleased || !shellActive {
+
+            shellNode.opacity = 0.0
+
+        } else {
+
+            shellNode.opacity = opacity
+        }
+    }
+    // ============================================================
+    // MARK: - ENERGY SHELL COLOR
+    // ============================================================
+
+    private func energyShellColor(
+        normalizedEnergy: Double
+    ) -> UIColor {
+
+        let value = min(
+            1.0,
+            max(
+                0.0,
+                normalizedEnergy
+            )
+        )
+
+        // --------------------------------------------------------
+        // Low energy → cyan
+        // High energy → red
+        // --------------------------------------------------------
+
+        let red = CGFloat(value)
+
+        let green = CGFloat(
+            0.85 * (1.0 - value)
+            + 0.15
+        )
+
+        let blue = CGFloat(
+            1.0 - value
+        )
+
+        return UIColor(
+            red: red,
+            green: green,
+            blue: blue,
+            alpha: 1.0
+        )
     }
     private func evaluateHelium2Candidate() {
 
@@ -2492,289 +2706,216 @@ final class QRTLSimulation: ObservableObject {
     }
     private func performCollision() {
 
-        guard !collisionOccurred else { return }
-
         // ============================================================
-        // MARK: - 1. INITIALIZE QUARK BREAKUP
+        // MARK: - QRTL PROTON COLLISION
         // ============================================================
 
-        initializeCollisionQuarks()
-
-        protonANode.isHidden = true
-        protonBNode.isHidden = true
-
-        for node in protonAQuarkNodes {
-            node.isHidden = false
-        }
-
-        for node in protonBQuarkNodes {
-            node.isHidden = false
-        }
-
-        updateQuarkScene()
-
-        // ============================================================
-        // MARK: - 2. COLLISION STATE
-        // ============================================================
-
+        collisionActive = true
+        collisionCompleted = false
         collisionOccurred = true
-        collisionTime = simulationTime
+
+        // ============================================================
+        // 1. ACTUAL PROTON COLLISION ENERGY
+        // ============================================================
+
+        let protonMassKg = 1.67262192369e-27
+
+        let protonVelocityMPerS =
+            0.99 * 299_792_458.0
+
+        let kineticEnergyJ =
+            0.5 *
+            protonMassKg *
+            protonVelocityMPerS *
+            protonVelocityMPerS
+
+        // ============================================================
+        // 2. STORE COLLISION ENERGY
+        // ============================================================
+
+        collisionKineticEnergyJ = kineticEnergyJ
+
+        // ============================================================
+        // 3. ACTIVATE QRTL ENERGY SHELL
+        // ============================================================
+
+        shellActive = true
+        shellEnergyReleased = false
+
+        shellPhase = .forming
+
+        shellFormationTime = 0.0
+        shellStoredEnergyJ = kineticEnergyJ
+
+        // ============================================================
+        // 4. RESET SHELL DYNAMICS
+        // ============================================================
+
+        shellCompression = 0.0
+        shellDeformation = 0.0
+        shellInstability = 0.0
+
+        // ============================================================
+        // 5. RESET COLLISION DYNAMICS
+        // ============================================================
+
         collisionElapsedTime = 0.0
 
-        quarkCompressionProgress = 0.0
-        quarkRepulsionProgress = 0.0
+        energyShellDissipationTriggered = false
 
-        quarkCompressionActive = true
-        quarkRepulsionActive = false
-
-        collisionEnergyReleased = false
-        quarksSeparated = false
+        // The shell has the energy, but the lattice has not
+        // received that energy yet.
+        latticeExcited = false
 
         // ============================================================
-        // MARK: - 3. ACTUAL INCOMING COLLISION ENERGY
+        // 6. RESET RESONANCE STATE
         // ============================================================
 
-        let incomingEnergyJ =
-            QRTLConstants.collisionKineticEnergyJ
+        collectiveSignal.removeAll(keepingCapacity: true)
 
-        guard incomingEnergyJ.isFinite,
-              incomingEnergyJ > 0.0 else {
+        naturalAngularFrequency = 0.0
+        naturalFrequencyHz = 0.0
 
-            print("""
-            ERROR:
-            Invalid collision energy:
-            \(incomingEnergyJ) J
-            """)
+        resonantModeAmplitude = 0.0
+        resonantModeEnergy = 0.0
 
-            return
-        }
-
-        // This is the actual physical energy entering the collision.
-        collisionKineticEnergyJ = incomingEnergyJ
-
-        collisionKineticEnergyGeV =
-            incomingEnergyJ /
-            QRTLConstants.joulePerGeV
-
-        collisionKineticEnergyTeV =
-            collisionKineticEnergyGeV /
-            1_000.0
+        higgsLikeModeDetected = false
+        resonancePersistence = 0.0
 
         // ============================================================
-        // MARK: - 4. QRTL SHELL RECEIVES THE COLLISION ENERGY
+        // 7. RESET SHELL / STABILITY STATE
         // ============================================================
 
-        energyState.equilibriumShellEnergy =
-            incomingEnergyJ
-
-        energyState.shellEnergy =
-            incomingEnergyJ
-
-        energyState.shellInstability =
-            1.0
-
-        energyState.isUnstable =
-            true
-
-        energyState.deformation =
-            1.0
+        isUnstable = true
 
         // ============================================================
-        // MARK: - 5. 125 GeV HIGGS REFERENCE
+        // 8. UPDATE ENERGY STATE
         // ============================================================
 
-        // IMPORTANT:
-        // This is a reference/formation scale.
-        // It is NOT the incoming collision energy.
-        // It is NOT used to overwrite the collision energy.
-
-        let higgsReferenceEnergyJ =
-            QRTLConstants.targetHiggsMassGeV *
-            QRTLConstants.joulePerGeV
-
-        formationThresholdEnergy =
-            higgsReferenceEnergyJ
-
-        targetMassEnergyJ =
-            higgsReferenceEnergyJ
-
-        collisionMassEnergyJ =
-            higgsReferenceEnergyJ
-
-        collisionMassEquivalentKg =
-            higgsReferenceEnergyJ /
-            (
-                QRTLConstants.speedOfLight *
-                QRTLConstants.speedOfLight
-            )
+        energyState.shellEnergy = kineticEnergyJ
+        energyState.equilibriumShellEnergy = kineticEnergyJ
+        energyState.deformation = 0.0
+        energyState.shellInstability = 0.0
+        energyState.isUnstable = true
 
         // ============================================================
-        // MARK: - 6. COLLISION ENERGY ACCOUNTING
+        // 9. UPDATE VISUAL ENERGY SHELL
         // ============================================================
 
-        collisionCoreEnergyJ =
-            incomingEnergyJ
-
-        collisionReleasedEnergyJ =
-            0.0
-
-        collisionEnergySymmetry =
-            0.0
+        updateEnergyShellVisual()
+        updateEnergyShellPulse()
 
         // ============================================================
-        // MARK: - 7. LOCATE COLLISION CORE
-        // ============================================================
-
-        let impactX =
-            (protonAX + protonBX) * 0.5
-
-        collisionCoreIndex =
-            nearestCellIndex(toX: impactX)
-
-        // ============================================================
-        // MARK: - 8. INPUT ENERGY DEBUG
+        // IMPORTANT
+        //
+        // Do NOT set latticeExcited = true here.
+        //
+        // The intended sequence is:
+        //
+        // collision
+        //     ↓
+        // shell formation
+        //     ↓
+        // shell compression
+        //     ↓
+        // shell instability
+        //     ↓
+        // shell release
+        //     ↓
+        // lattice excitation
+        //
+        // updateEnergyShell() controls that later transition.
         // ============================================================
 
         print("""
-        
         ============================================================
-        COLLISION ENERGY INPUT
+        QRTL PROTON COLLISION
         ============================================================
-        
-        Incoming collision:
-            \(incomingEnergyJ) J
-        
-        Incoming collision:
-            \(collisionKineticEnergyGeV) GeV
-        
-        Incoming collision:
-            \(collisionKineticEnergyTeV) TeV
-        
-        ============================================================
-        HIGGS REFERENCE SCALE
-        ============================================================
-        
-        Target Higgs mass:
-            \(QRTLConstants.targetHiggsMassGeV) GeV
-        
-        Target Higgs reference:
-            \(higgsReferenceEnergyJ) J
-        
-        Incoming / reference:
-            \(incomingEnergyJ / higgsReferenceEnergyJ)
-        
-        Reference / incoming:
-            \(higgsReferenceEnergyJ / incomingEnergyJ)
-        
-        ============================================================
-        """)
 
-        // ============================================================
-        // MARK: - 9. DEPOSIT COLLISION ENERGY INTO LATTICE
-        // ============================================================
-
-        latticeExcited = true
-
-        // ============================================================
-        // MARK: - 10. VERIFY IMMEDIATE POST-DEPOSITION ENERGY
-        // ============================================================
-
-        let postExcitationEnergyJ =
-            totalMechanicalLatticeEnergy()
-
-        let targetLatticeEnergyJ =
-            incomingEnergyJ *
-            QRTLConstants.targetLatticeFraction
-
-        let depositionErrorJ =
-            postExcitationEnergyJ -
-            targetLatticeEnergyJ
-
-        let depositionRelativeError =
-            abs(depositionErrorJ) /
-            max(targetLatticeEnergyJ, 1e-30)
-
-        print("""
-        
-        ============================================================
-        POST-EXCITATION ENERGY CHECK
-        ============================================================
-        
         Collision energy:
-            \(incomingEnergyJ) J
-        
-        Target lattice energy:
-            \(targetLatticeEnergyJ) J
-        
-        Actual lattice energy:
-            \(postExcitationEnergyJ) J
-        
-        Actual lattice energy:
-            \(postExcitationEnergyJ /
-            QRTLConstants.joulePerGeV) GeV
-        
-        Deposition error:
-            \(depositionErrorJ) J
-        
-        Relative error:
-            \(depositionRelativeError)
-        
-        Affected collision core:
-            \(collisionCoreIndex as Any)
-        
-        Lattice excited:
-            \(latticeExcited)
-        
-        ============================================================
-        """)
+            \(kineticEnergyJ) J
 
-        // ============================================================
-        // MARK: - 11. FINAL COLLISION INITIALIZATION STATE
-        // ============================================================
+        Collision energy:
+            \(kineticEnergyJ / QRTLConstants.joulesPerGeV) GeV
 
-        print("""
-        
-        ============================================================
-        COLLISION INITIALIZATION COMPLETE
-        ============================================================
-        
-        Collision core energy:
-            \(collisionCoreEnergyJ) J
-        
-        Collision core energy:
-            \(collisionCoreEnergyJ /
-            QRTLConstants.joulePerGeV) GeV
-        
-        Target mass/reference energy:
-            \(targetMassEnergyJ) J
-        
-        Lattice energy:
-            \(postExcitationEnergyJ) J
-        
-        Lattice energy:
-            \(postExcitationEnergyJ /
-            QRTLConstants.joulePerGeV) GeV
-        
-        Lattice excited:
-            \(latticeExcited)
-        
-        Collision core index:
-            \(collisionCoreIndex as Any)
-        
+        Shell active:
+            \(shellActive)
+
+        Shell phase:
+            \(shellPhase)
+
+        Shell stored energy:
+            \(shellStoredEnergyJ) J
+
         Shell energy:
-            \(energyState.shellEnergy) J
-        
-        Shell instability:
-            \(energyState.shellInstability)
-        
+            \(shellStoredEnergyJ / QRTLConstants.joulesPerGeV) GeV
+
+        Shell released:
+            \(shellEnergyReleased)
+
+        Shell compression:
+            \(shellCompression)
+
         Shell deformation:
-            \(energyState.deformation)
-        
+            \(shellDeformation)
+
+        Shell instability:
+            \(shellInstability)
+
+        Lattice excited:
+            \(latticeExcited)
+
         ============================================================
         """)
     }
 
+    private func updateEnergyShellPulse() {
 
+        guard let shellNode = energyShellNode else {
+            return
+        }
+
+        guard shellActive,
+              shellStoredEnergyJ > 0.0
+        else {
+            shellNode.removeAction(
+                forKey: "energyShellPulse"
+            )
+            return
+        }
+
+        if shellNode.action(
+            forKey: "energyShellPulse"
+        ) == nil {
+
+            let pulseUp = SCNAction.scale(
+                to: 1.04,
+                duration: 0.08
+            )
+
+            let pulseDown = SCNAction.scale(
+                to: 0.96,
+                duration: 0.08
+            )
+
+            pulseUp.timingMode = .easeInEaseOut
+            pulseDown.timingMode = .easeInEaseOut
+
+            let sequence = SCNAction.sequence([
+                pulseUp,
+                pulseDown
+            ])
+
+            let repeatAction = SCNAction.repeatForever(
+                sequence
+            )
+
+            shellNode.runAction(
+                repeatAction,
+                forKey: "energyShellPulse"
+            )
+        }
+    }
     func runCollisionForTesting(damping testDamping: Double) {
 
         // Apply temporary damping used only by the test
@@ -3890,6 +4031,8 @@ final class QRTLSimulation: ObservableObject {
 
         ============================================================
         """)
+        updateEnergyShellVisual()
+        updateEnergyShellPulse()
     }
     private func injectShellEnergyIntoLattice(energyJ: Double) {
 
