@@ -170,7 +170,7 @@ enum QRTLConstants {
     static let protonVelocityMPerS: Double = 1.0e8
     static let protonMassKg: Double = 1.67262192369e-27
     static let cellSpacing: Double = 1.0
-    static let collisionRadius: Double = 3.0
+    static let collisionRadius: Double = 5.0
     static let minimumCoherence: Double = 0.70
     static let minimumResonanceDuration: Double = 1.0
     static let stableEnergyTolerance = 0.001
