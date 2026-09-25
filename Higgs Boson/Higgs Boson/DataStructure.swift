@@ -120,7 +120,7 @@ struct EnergyState {
 }
 enum QRTLConstants {
 
-    static let collisionEnergyGeV: Double = 8_000.0
+    static let collisionEnergyGeV: Double = 4_000.0
 
     /// Collision energy in joules.
     static let collisionKineticEnergyJ: Double =
