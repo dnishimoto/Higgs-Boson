@@ -1772,6 +1772,7 @@ final class QRTLSimulation: ObservableObject {
             if protonAState == "COLLISION" &&
                protonBState == "COLLISION" {
                 performCollision()
+                shellActive = true
             }
         }
 
@@ -1812,6 +1813,22 @@ final class QRTLSimulation: ObservableObject {
             return
         }
 
+        
+        if shellActive {
+               shellFormationTime += dt
+
+               let shellLifetime = 1.0e-22
+
+               if !shellEnergyReleased &&
+                  shellFormationTime >= shellLifetime {
+
+                   releaseShellEnergyIntoLattice()
+
+                   shellEnergyReleased = true
+                   shellActive = false
+               }
+           }
+        
         // ============================================================
         // PHYSICAL TIMESTEP
         // ============================================================
@@ -2396,7 +2413,7 @@ final class QRTLSimulation: ObservableObject {
             protonBNode.position.x =
                 Float(protonBX) *
                 QRTLConstants.sceneScale
-
+            
             return
         }
 
