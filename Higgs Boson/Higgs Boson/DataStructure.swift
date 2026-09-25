@@ -119,7 +119,8 @@ struct EnergyState {
     var isUnstable: Bool = false
 }
 enum QRTLConstants {
-    
+    static let maximumSimulationVelocityMPerS =
+        299_792_458.0
     static let shellLatticeTransferFraction = 1.0
     static let shellLifetimeSeconds = 1.0e-22
     static let joulesPerGeV = 1.602176634e-10
@@ -150,14 +151,13 @@ enum QRTLConstants {
 
      static let spectralNyquistFrequency =
          0.5 * spectralSampleRate
-    static let maxLatticeVelocity = 50.0
-    static let activeEnergyThreshold = 1e-18
+    static let activeEnergyThreshold = 1e-35
     static let targetLatticeFraction = 0.5
 
 
     // Numerical cell-activity cutoff.
     // This is NOT the Higgs energy.
-    static let activeEnergyThresholdJ = 1.0e-18
+    static let activeEnergyThresholdJ = 1.0e-35
 
     static let physicsStepsPerFrame = 4
 

@@ -228,6 +228,9 @@ final class QRTLSimulation: ObservableObject {
         if latticeExcited { return "LATTICE OSCILLATING" }
         return "ENERGY TRANSFER"
     }
+    private var cellMassKg: Double {
+        QRTLConstants.effectiveMassKg
+    }
 
     // MARK: - Init
 
@@ -1961,198 +1964,200 @@ final class QRTLSimulation: ObservableObject {
         // 10. ENERGY DIAGNOSTICS
         //printCollisionEnergyState()
     }
+    /// Rescale lattice (x, v) so total mechanical energy does not exceed
+    /// collisionKineticEnergyJ.
+    ///
+    /// - Default (safe): only scales DOWN.
+    /// - allowAmplify: only use immediately after shell release if injection
+    ///   under-shot the budget; still capped at the budget.
+    private func normalizeLatticeEnergyToCollisionBudget(
+        allowAmplify: Bool = false
+    ) {
+        guard collisionKineticEnergyJ.isFinite,
+              collisionKineticEnergyJ > 0,
+              !cells.isEmpty
+        else {
+            return
+        }
+
+        let target = collisionKineticEnergyJ
+
+        // Measure with the SAME formula used everywhere else
+        var current = 0.0
+        for cell in cells {
+            let e = physicalEnergy(
+                displacement: cell.displacement,
+                velocity: cell.velocity
+            )
+            if e.isFinite, e >= 0 {
+                current += e
+            }
+        }
+
+        guard current.isFinite, current > 0 else {
+            // Nothing to rescale. Do NOT invent motion from zero energy.
+            return
+        }
+
+        // Under budget: either leave alone (safe) or amplify only if allowed
+        if current <= target {
+            if !allowAmplify {
+                return
+            }
+            // fall through to scale up toward target
+        }
+
+        var scale = sqrt(target / current)
+
+        guard scale.isFinite, scale > 0 else {
+            return
+        }
+
+        // Hard rule: never amplify unless explicitly allowed
+        if !allowAmplify {
+            scale = min(scale, 1.0)
+        }
+
+        // Even when allowed, do not overshoot via numerical noise
+        // (re-measure after apply still recommended)
+        if allowAmplify {
+            scale = min(scale, 1.0e6) // sanity cap; adjust if needed
+        }
+
+        for index in cells.indices {
+            cells[index].displacement *= Float(scale)
+            cells[index].velocity *= Float(scale)
+
+            let e = physicalEnergy(
+                displacement: cells[index].displacement,
+                velocity: cells[index].velocity
+            )
+            cells[index].localEnergy = e.isFinite && e >= 0 ? e : 0
+        }
+
+        // Final down-only correction if we slightly overshot
+        var finalEnergy = 0.0
+        for cell in cells {
+            let e = cell.localEnergy
+            if e.isFinite, e >= 0 { finalEnergy += e }
+        }
+
+        if finalEnergy.isFinite,
+           finalEnergy > target * 1.001 {
+            let down = sqrt(target / finalEnergy)
+            if down.isFinite, down > 0, down < 1 {
+                for index in cells.indices {
+                    cells[index].displacement *= Float(down)
+                    cells[index].velocity *= Float(down)
+                    let e = physicalEnergy(
+                        displacement: cells[index].displacement,
+                        velocity: cells[index].velocity
+                    )
+                    cells[index].localEnergy = e.isFinite && e >= 0 ? e : 0
+                }
+            }
+        }
+    }
     private func updateCollisionDynamics(dt: Double) {
 
-        guard !cells.isEmpty else {
-            return
-        }
-
-        
-        if shellActive {
-               shellFormationTime += dt
-
-               let shellLifetime = 1.0e-22
-
-               if !shellEnergyReleased &&
-                  shellFormationTime >= shellLifetime {
-
-                   releaseShellEnergyIntoLattice()
-
-                   shellEnergyReleased = true
-                   shellActive = false
-               }
-           }
-        
-        // ============================================================
-        // PHYSICAL TIMESTEP
-        // ============================================================
+        guard !cells.isEmpty else { return }
 
         let physicsDt = QRTLConstants.timeStep
+        guard physicsDt.isFinite, physicsDt > 0 else { return }
 
-        guard physicsDt > 0.0,
-              physicsDt.isFinite else {
-            return
+        // ============================================================
+        // SHELL LIFETIME → ONE release into lattice
+        // ============================================================
+        if shellActive && !shellEnergyReleased {
+            // Use physical timestep only (same clock as shellLifetime)
+            shellFormationTime += physicsDt
+
+            let shellLifetime = QRTLConstants.shellLifetimeSeconds // 1e-22
+
+            if shellFormationTime >= shellLifetime {
+                releaseShellEnergyIntoLattice()
+                // releaseShellEnergyIntoLattice must set:
+                //   shellEnergyReleased = true
+                //   shellActive = false
+                //   latticeExcited = true
+                //   collisionImpulseApplied = true
+                // and sync localEnergy to velocity/displacement
+            }
         }
+
+        // Do NOT call updateEnergyShell() here while debugging energy.
+        // One owner of shell → lattice transfer: releaseShellEnergyIntoLattice().
 
         guard collisionKineticEnergyJ.isFinite,
-              collisionKineticEnergyJ > 0.0,
-              latticeExcited else {
+              collisionKineticEnergyJ > 0,
+              latticeExcited,
+              shellEnergyReleased
+        else {
             return
         }
-
-        // ============================================================
-        // ADVANCE COLLISION TIME
-        // ============================================================
 
         collisionElapsedTime += physicsDt
 
         // ============================================================
-        // QRTL ENERGY SHELL
+        // One-time bookkeeping right after release
         // ============================================================
-
-        let shellWasReleasedBeforeUpdate = shellEnergyReleased
-
-        updateEnergyShell()
-
-        let shellJustReleased =
-            !shellWasReleasedBeforeUpdate &&
-            shellEnergyReleased
-
-        // ============================================================
-        // WAIT FOR SHELL RELEASE
-        // ============================================================
-
-        guard shellEnergyReleased else {
-            return
+        // Prefer: releaseShellEnergyIntoLattice already normalized.
+        // Only scale DOWN here if still slightly over budget (float noise).
+        do {
+            let measured = totalMechanicalLatticeEnergy()
+            if measured.isFinite,
+               measured > collisionKineticEnergyJ * 1.001 {
+                let s = sqrt(collisionKineticEnergyJ / measured)
+                if s.isFinite, s > 0, s <= 1.0 {
+                    for i in cells.indices {
+                        cells[i].velocity *= Float(s)
+                        cells[i].displacement *= Float(s)
+                        cells[i].localEnergy = physicalEnergy(
+                            displacement: cells[i].displacement,
+                            velocity: cells[i].velocity
+                        )
+                    }
+                }
+            }
         }
 
-        // ============================================================
-        // IMPORTANT:
-        //
-        // updateEnergyShell() converts the released shell energy
-        // directly into lattice kinetic energy.
-        //
-        // Do NOT immediately apply another oscillator evolution
-        // on the same release step.
-        // ============================================================
-
-        if shellJustReleased {
-
-            latticeEnergy =
-                totalMechanicalLatticeEnergy()
-
-            currentLatticeEnergyJ =
-                latticeEnergy
-
-            currentLatticeEnergyGeV =
-                latticeEnergy /
-                QRTLConstants.joulesPerGeV
-
-            currentLatticeEnergyTeV =
-                currentLatticeEnergyGeV / 1_000.0
-
-            print("""
-            ============================================================
-            SHELL RELEASE → KINETIC LATTICE ENERGY
-            ============================================================
-            Collision energy:
-                \(collisionKineticEnergyJ) J
-
-            Lattice kinetic/mechanical energy:
-                \(latticeEnergy) J
-
-            Lattice energy:
-                \(currentLatticeEnergyGeV) GeV
-
-            ============================================================
-            """)
-
-            return
-        }
+        // Optional: skip oscillator evolution on the exact release frame
+        // if releaseShellEnergyIntoLattice just ran this step.
+        // (Detect via a flag set in release, cleared here.)
 
         // ============================================================
         // OSCILLATOR PARAMETERS
         // ============================================================
+        let cellMassKg = max(QRTLConstants.effectiveMassKg, Double.leastNonzeroMagnitude)
+        let stiffnessNPerM = max(QRTLConstants.effectiveStiffnessNPerM, Double.leastNonzeroMagnitude)
+        let omega = sqrt(stiffnessNPerM / cellMassKg)
+        guard omega.isFinite, omega > 0 else { return }
 
-        let cellMassKg = max(
-            QRTLConstants.effectiveMassKg,
-            Double.leastNonzeroMagnitude
-        )
+        let damping = max(QRTLConstants.damping, 0.0)
+        let dampingFactor = damping > 0 ? exp(-damping * physicsDt) : 1.0
 
-        let stiffnessNPerM = max(
-            QRTLConstants.effectiveStiffnessNPerM,
-            Double.leastNonzeroMagnitude
-        )
-
-        let omega = sqrt(
-            stiffnessNPerM / cellMassKg
-        )
-
-        guard omega.isFinite,
-              omega > 0.0 else {
-            return
-        }
-
-        // ============================================================
-        // NUMERICALLY STABLE PHASE INCREMENT
-        //
-        // Avoid using an enormous raw omega * dt directly when omega
-        // is extremely large.
-        // ============================================================
-
-        let rawAngle = omega * physicsDt
-
-        guard rawAngle.isFinite else {
-            return
-        }
-
-        let twoPi = 2.0 * Double.pi
-
-        let angle =
-            rawAngle.truncatingRemainder(
-                dividingBy: twoPi
-            )
-
-        let cosine = cos(angle)
-        let sine = sin(angle)
-
-        let omegaInverse = 1.0 / omega
-
-        let damping =
-            max(QRTLConstants.damping, 0.0)
-
-        let dampingFactor =
-            damping > 0.0
-            ? exp(-damping * physicsDt)
-            : 1.0
-
-        // ============================================================
-        // EVOLVE CELLS
-        // ============================================================
+        // Exact HO rotation for any dt (modulo 2π is fine)
+        let phase = (omega * physicsDt).truncatingRemainder(dividingBy: 2.0 * Double.pi)
+        let cosine = cos(phase)
+        let sine = sin(phase)
+        guard cosine.isFinite, sine.isFinite else { return }
 
         var energyBeforeLoop = 0.0
-        var energyAfterEvolution = 0.0
         var energyAfterFloatConversion = 0.0
-
-        var maximumEnergyIncrease = 0.0
-        var maximumEnergyCell = -1
-
         var maximumDisplacement = 0.0
         var maximumVelocity = 0.0
 
+        // ============================================================
+        // EVOLVE CELLS (single owner of x, v)
+        // ============================================================
         for index in cells.indices {
 
-            // --------------------------------------------------------
-            // CURRENT STATE
-            // --------------------------------------------------------
-
-            let currentDisplacement = SIMD3<Double>(
+            let displacement = SIMD3<Double>(
                 Double(cells[index].displacement.x),
                 Double(cells[index].displacement.y),
                 Double(cells[index].displacement.z)
             )
-
-            let currentVelocity = SIMD3<Double>(
+            let velocity = SIMD3<Double>(
                 Double(cells[index].velocity.x),
                 Double(cells[index].velocity.y),
                 Double(cells[index].velocity.z)
@@ -2162,261 +2167,127 @@ final class QRTLSimulation: ObservableObject {
                 displacement: cells[index].displacement,
                 velocity: cells[index].velocity
             )
-
-            energyBeforeLoop += oldEnergy
-
-            // --------------------------------------------------------
-            // ANALYTIC HARMONIC OSCILLATOR
-            // --------------------------------------------------------
-
-            let newDisplacement =
-                currentDisplacement * cosine +
-                currentVelocity *
-                (omegaInverse * sine)
-
-            var newVelocity =
-                currentVelocity * cosine -
-                currentDisplacement *
-                (omega * sine)
-
-            newVelocity *= dampingFactor
-
-            // --------------------------------------------------------
-            // MEASURE DYNAMICS
-            // --------------------------------------------------------
-
-            let displacementMagnitude =
-                simd_length(newDisplacement)
-
-            let velocityMagnitude =
-                simd_length(newVelocity)
-
-            maximumDisplacement =
-                max(
-                    maximumDisplacement,
-                    displacementMagnitude
-                )
-
-            maximumVelocity =
-                max(
-                    maximumVelocity,
-                    velocityMagnitude
-                )
-
-            // --------------------------------------------------------
-            // ENERGY
-            // --------------------------------------------------------
-
-            let potentialEnergy =
-                0.5 *
-                stiffnessNPerM *
-                simd_length_squared(newDisplacement)
-
-            let kineticEnergy =
-                0.5 *
-                cellMassKg *
-                simd_length_squared(newVelocity)
-
-            let evolvedEnergy =
-                potentialEnergy +
-                kineticEnergy
-
-            energyAfterEvolution +=
-                evolvedEnergy
-
-            let energyIncrease =
-                evolvedEnergy - oldEnergy
-
-            if energyIncrease > maximumEnergyIncrease {
-
-                maximumEnergyIncrease =
-                    energyIncrease
-
-                maximumEnergyCell =
-                    index
+            if oldEnergy.isFinite {
+                energyBeforeLoop += max(0, oldEnergy)
             }
 
-            // --------------------------------------------------------
-            // STORE STATE
-            // --------------------------------------------------------
+            // x' = x cosωt + (v/ω) sinωt
+            // v' = v cosωt - ω x sinωt
+            var newDisplacement = displacement * cosine + velocity * (sine / omega)
+            var newVelocity = velocity * cosine - displacement * (omega * sine)
+            newVelocity *= dampingFactor
 
-            cells[index].displacement =
-                SIMD3<Float>(
-                    Float(newDisplacement.x),
-                    Float(newDisplacement.y),
-                    Float(newDisplacement.z)
-                )
+            // Finite failure: clear ALL mechanical state together
+            guard newDisplacement.x.isFinite, newDisplacement.y.isFinite, newDisplacement.z.isFinite,
+                  newVelocity.x.isFinite, newVelocity.y.isFinite, newVelocity.z.isFinite
+            else {
+                cells[index].displacement = .zero
+                cells[index].velocity = .zero
+                cells[index].localEnergy = 0
+                continue
+            }
 
-            cells[index].velocity =
-                SIMD3<Float>(
-                    Float(newVelocity.x),
-                    Float(newVelocity.y),
-                    Float(newVelocity.z)
-                )
+            maximumDisplacement = max(maximumDisplacement, simd_length(newDisplacement))
+            maximumVelocity = max(maximumVelocity, simd_length(newVelocity))
 
-            // --------------------------------------------------------
-            // ENERGY AFTER FLOAT STORAGE
-            // --------------------------------------------------------
+            // Store float state
+            cells[index].displacement = SIMD3<Float>(
+                Float(newDisplacement.x),
+                Float(newDisplacement.y),
+                Float(newDisplacement.z)
+            )
+            cells[index].velocity = SIMD3<Float>(
+                Float(newVelocity.x),
+                Float(newVelocity.y),
+                Float(newVelocity.z)
+            )
 
-            let storedEnergy =
-                physicalEnergy(
-                    displacement:
-                        cells[index].displacement,
-                    velocity:
-                        cells[index].velocity
-                )
+            // Authoritative energy from stored float state (same formula as updateLattice)
+            let e = physicalEnergy(
+                displacement: cells[index].displacement,
+                velocity: cells[index].velocity
+            )
+            cells[index].localEnergy = e.isFinite && e >= 0 ? e : 0
+            energyAfterFloatConversion += cells[index].localEnergy
 
-            energyAfterFloatConversion +=
-                storedEnergy
-
-            // ========================================================
-            // MODE CALCULATION
-            // ========================================================
-
+            // Mode diagnostics
             let modeDirection = SIMD3<Double>(
                 Double(cells[index].modeDirection.x),
                 Double(cells[index].modeDirection.y),
                 Double(cells[index].modeDirection.z)
             )
+            let dirLen = simd_length(modeDirection)
+            let nDir = dirLen > 0 ? modeDirection / dirLen : SIMD3<Double>(1, 0, 0)
 
-            let directionLength =
-                simd_length(modeDirection)
+            let storedX = SIMD3<Double>(
+                Double(cells[index].displacement.x),
+                Double(cells[index].displacement.y),
+                Double(cells[index].displacement.z)
+            )
+            let storedV = SIMD3<Double>(
+                Double(cells[index].velocity.x),
+                Double(cells[index].velocity.y),
+                Double(cells[index].velocity.z)
+            )
 
-            let normalizedModeDirection =
-                directionLength > 0.0
-                ? modeDirection / directionLength
-                : SIMD3<Double>(
-                    1.0,
-                    0.0,
-                    0.0
-                )
+            let modeCoordinate = simd_dot(storedX, nDir)
+            let modeVelocity = simd_dot(storedV, nDir)
 
-            let modeCoordinate =
-                simd_dot(
-                    newDisplacement,
-                    normalizedModeDirection
-                )
+            cells[index].modeCoordinate = modeCoordinate
+            cells[index].modeVelocity = modeVelocity
+            cells[index].modeAcceleration = -omega * omega * modeCoordinate
 
-            let modeVelocity =
-                simd_dot(
-                    newVelocity,
-                    normalizedModeDirection
-                )
+            let amp2 = modeCoordinate * modeCoordinate + pow(modeVelocity / omega, 2.0)
+            cells[index].amplitude = sqrt(max(0, amp2))
 
-            cells[index].modeCoordinate =
-                modeCoordinate
-
-            cells[index].modeVelocity =
-                modeVelocity
-
-            cells[index].modeAcceleration =
-                -omega *
-                omega *
-                modeCoordinate
-
-            // --------------------------------------------------------
-            // MODE AMPLITUDE
-            // --------------------------------------------------------
-
-            let amplitudeSquared =
-                modeCoordinate * modeCoordinate +
-                pow(
-                    modeVelocity / omega,
-                    2.0
-                )
-
-            cells[index].amplitude =
-                sqrt(
-                    max(
-                        0.0,
-                        amplitudeSquared
-                    )
-                )
-
-            // --------------------------------------------------------
-            // PHASE
-            // --------------------------------------------------------
-
-            cells[index].previousPhase =
-                cells[index].phase
-
-            cells[index].phase =
-                atan2(
-                    modeVelocity,
-                    omega * modeCoordinate
-                )
-
-            cells[index].unwrappedPhase +=
-                cells[index].phase -
-                cells[index].previousPhase
-
-            // --------------------------------------------------------
-            // AUTHORITATIVE LOCAL ENERGY
-            // --------------------------------------------------------
-
-            cells[index].localEnergy =
-                max(
-                    evolvedEnergy,
-                    0.0
-                )
+            cells[index].previousPhase = cells[index].phase
+            cells[index].phase = atan2(modeVelocity, omega * modeCoordinate)
+            cells[index].unwrappedPhase += cells[index].phase - cells[index].previousPhase
         }
 
         // ============================================================
-        // FINAL ENERGY
+        // Budget guard: never allow lattice energy > collision budget
+        // (damping may reduce energy; do not scale up)
         // ============================================================
+        var total = totalMechanicalLatticeEnergy()
+        if total.isFinite,
+           total > collisionKineticEnergyJ * 1.001,
+           collisionKineticEnergyJ > 0 {
+            let s = sqrt(collisionKineticEnergyJ / total)
+            if s.isFinite, s > 0, s <= 1.0 {
+                for i in cells.indices {
+                    cells[i].velocity *= Float(s)
+                    cells[i].displacement *= Float(s)
+                    cells[i].localEnergy = physicalEnergy(
+                        displacement: cells[i].displacement,
+                        velocity: cells[i].velocity
+                    )
+                }
+                total = totalMechanicalLatticeEnergy()
+            }
+        }
 
-        latticeEnergy =
-            totalMechanicalLatticeEnergy()
-
-        currentLatticeEnergyJ =
-            latticeEnergy
-
-        currentLatticeEnergyGeV =
-            latticeEnergy /
-            QRTLConstants.joulesPerGeV
-
-        currentLatticeEnergyTeV =
-            currentLatticeEnergyGeV /
-            1_000.0
-
-        // ============================================================
-        // DYNAMICS DEBUG
-        // ============================================================
+        latticeEnergy = total.isFinite ? total : 0
+        currentLatticeEnergyJ = latticeEnergy
+        currentLatticeEnergyGeV = latticeEnergy / QRTLConstants.joulesPerGeV
+        currentLatticeEnergyTeV = currentLatticeEnergyGeV / 1_000.0
 
         print("""
         ============================================================
         DYNAMICS
-        ============================================================
-        Collision elapsed:
-            \(collisionElapsedTime) s
-
-        Shell released:
-            \(shellEnergyReleased)
-
-        Maximum displacement:
-            \(maximumDisplacement) m
-
-        Maximum velocity:
-            \(maximumVelocity) m/s
-
-        Energy before:
-            \(energyBeforeLoop) J
-
-        Energy after:
-            \(energyAfterEvolution) J
-
-        Float storage energy:
-            \(energyAfterFloatConversion) J
-
-        Lattice energy:
-            \(latticeEnergy) J
-
-        Lattice energy:
-            \(currentLatticeEnergyGeV) GeV
-
+        elapsed: \(collisionElapsedTime) s
+        omega: \(omega) rad/s
+        max |x|: \(maximumDisplacement) m
+        max |v|: \(maximumVelocity) m/s
+        E before: \(energyBeforeLoop) J
+        E after:  \(energyAfterFloatConversion) J
+        E lattice:\(latticeEnergy) J
+        budget:   \(collisionKineticEnergyJ) J
+        ratio:    \(latticeEnergy / max(collisionKineticEnergyJ, 1e-300))
         ============================================================
         """)
     }
+ 
     private func calculateBorlagrinoFlow(
         displacement: SIMD3<Float>,
         velocity: SIMD3<Float>,
@@ -3945,347 +3816,22 @@ final class QRTLSimulation: ObservableObject {
         ============================================================
         """)
     }
-    private func injectShellEnergyIntoLattice(energyJ: Double) {
-
-        guard energyJ.isFinite,
-              energyJ > 0.0,
-              !cells.isEmpty else {
-            return
-        }
-
-        let mass = QRTLConstants.effectiveMassKg
-
-        guard mass.isFinite,
-              mass > 0.0 else {
-            return
-        }
-
-        // ============================================================
-        // COLLISION CENTER
-        // ============================================================
-
-        let center = SIMD3<Double>(
-            0.0,
-            0.0,
-            0.0
-        )
-
-        let radius = max(
-            1.0,
-            QRTLConstants.pumpRadius
-        )
-
-        var weights: [(index: Int, weight: Double)] = []
-
-        // ============================================================
-        // LOCALIZED GAUSSIAN PROFILE
-        // ============================================================
-
-        for index in cells.indices {
-
-            let cell = cells[index]
-
-            let x = Double(cell.position.x)
-            let y = Double(cell.position.y)
-            let z = Double(cell.position.z)
-
-            let dx = x - center.x
-            let dy = y - center.y
-            let dz = z - center.z
-
-            let distanceSquared =
-                dx * dx +
-                dy * dy +
-                dz * dz
-
-            let weight = exp(
-                -distanceSquared /
-                (2.0 * radius * radius)
-            )
-
-            if weight > 1.0e-12 {
-                weights.append(
-                    (
-                        index: index,
-                        weight: weight
-                    )
-                )
-            }
-        }
-
-        guard !weights.isEmpty else {
-            return
-        }
-
-        // ============================================================
-        // EXACT KINETIC-ENERGY NORMALIZATION
-        //
-        // E = 1/2 m Σv²
-        // ============================================================
-
-        let weightSquaredSum =
-            weights.reduce(0.0) {
-                $0 + ($1.weight * $1.weight)
-            }
-
-        guard weightSquaredSum.isFinite,
-              weightSquaredSum > 0.0 else {
-            return
-        }
-
-        let velocityScale = sqrt(
-            2.0 * energyJ /
-            (mass * weightSquaredSum)
-        )
-
-        guard velocityScale.isFinite else {
-            return
-        }
-
-        // ============================================================
-        // APPLY RADIAL IMPULSE
-        // ============================================================
-
-        for item in weights {
-
-            let cell = cells[item.index]
-
-            let x = Double(cell.position.x)
-            let y = Double(cell.position.y)
-            let z = Double(cell.position.z)
-
-            let dx = center.x - x
-            let dy = center.y - y
-            let dz = center.z - z
-
-            let distanceSquared =
-                dx * dx +
-                dy * dy +
-                dz * dz
-
-            // Center cell has no defined radial direction.
-            guard distanceSquared > 1.0e-20 else {
-                continue
-            }
-
-            let distance = sqrt(distanceSquared)
-
-            let direction = SIMD3<Float>(
-                Float(dx / distance),
-                Float(dy / distance),
-                Float(dz / distance)
-            )
-
-            let velocityMagnitude =
-                Float(
-                    velocityScale * item.weight
-                )
-
-            guard velocityMagnitude.isFinite else {
-                continue
-            }
-
-            cells[item.index].velocity +=
-                direction * velocityMagnitude
-        }
-    }
     private func releaseShellEnergyIntoLattice() {
+
+        // ============================================================
+        // RUN ONCE ONLY
+        // ============================================================
 
         guard !shellEnergyReleased else {
             return
         }
 
-        guard shellStoredEnergyJ.isFinite,
-              shellStoredEnergyJ > 0.0 else {
-            return
-        }
-
-        // ============================================================
-        // ENERGY LEAVING THE SHELL
-        // ============================================================
-
-        let energyToRelease =
-            shellStoredEnergyJ *
-            QRTLConstants.shellLatticeTransferFraction
-
-        guard energyToRelease.isFinite,
-              energyToRelease > 0.0 else {
-            return
-        }
-
-        // ============================================================
-        // SHELL → LATTICE
-        // ============================================================
-
-        injectShellEnergyIntoLattice(
-            energyJ: energyToRelease
-        )
-
-        // ============================================================
-        // ENERGY CONSERVATION
-        // ============================================================
-
-        shellStoredEnergyJ -= energyToRelease
-
-        shellStoredEnergyJ = max(
-            0.0,
-            shellStoredEnergyJ
-        )
-
-        shellEnergyReleased = true
-        shellActive = false
-        shellPhase = .released
-        
-        
-        let totalLatticeEnergyAfterRelease =
-            cells.reduce(0.0) {
-                $0 + $1.localEnergy
-            }
-
-        let peakLatticeEnergyAfterRelease =
-            cells.map(\.localEnergy).max() ?? 0.0
-
-        let activeCellsAfterRelease =
-            cells.filter {
-                $0.localEnergy >= 1e-18
-            }.count
-
-        print("""
-        ============================================================
-        AFTER SHELL ENERGY RELEASE
-        ============================================================
-
-        Shell stored energy:
-            \(shellStoredEnergyJ) J
-
-        Shell released:
-            \(shellEnergyReleased)
-
-        Lattice excited:
-            \(latticeExcited)
-
-        Total lattice energy:
-            \(totalLatticeEnergyAfterRelease) J
-
-        Peak cell energy:
-            \(peakLatticeEnergyAfterRelease) J
-
-        Active cells:
-            \(activeCellsAfterRelease)
-
-        ============================================================
-        """)
-    }
-    private func physicalEnergy(
-        displacement: SIMD3<Float>,
-        velocity: SIMD3<Float>
-    ) -> Double {
-
-        let spacing =
-            QRTLConstants.latticeCellSpacingMeters
-
-        let mass =
-            QRTLConstants.effectiveMassKg
-
-        let stiffness =
-            QRTLConstants.effectiveStiffnessNPerM
-
-        guard spacing.isFinite,
-              spacing > 0.0,
-              mass.isFinite,
-              mass > 0.0,
-              stiffness.isFinite,
-              stiffness > 0.0,
-              displacement.x.isFinite,
-              displacement.y.isFinite,
-              displacement.z.isFinite,
-              velocity.x.isFinite,
-              velocity.y.isFinite,
-              velocity.z.isFinite else {
-            return 0.0
-        }
-
-        let d2 =
-            Double(displacement.x) * Double(displacement.x) +
-            Double(displacement.y) * Double(displacement.y) +
-            Double(displacement.z) * Double(displacement.z)
-
-        let v2 =
-            Double(velocity.x) * Double(velocity.x) +
-            Double(velocity.y) * Double(velocity.y) +
-            Double(velocity.z) * Double(velocity.z)
-
-        guard d2.isFinite, d2 >= 0.0,
-              v2.isFinite, v2 >= 0.0 else {
-            return 0.0
-        }
-
-        // Convert lattice units → SI units exactly once.
-        let xPhysical = Foundation.sqrt(d2) * spacing
-        let vPhysical = Foundation.sqrt(v2) * spacing
-
-        let potential =
-            0.5 *
-            stiffness *
-            xPhysical *
-            xPhysical
-
-        let kinetic =
-            0.5 *
-            mass *
-            vPhysical *
-            vPhysical
-
-        let total =
-            potential + kinetic
-
-        guard total.isFinite,
-              total >= 0.0 else {
-            return 0.0
-        }
-
-        return total
-    }
-
-    func totalMechanicalLatticeEnergy() -> Double {
-        cells.reduce(0.0) { $0 + physicalEnergy(displacement: $1.displacement, velocity: $1.velocity) }
-    }
-
-
-    private func updateLattice(dt: Double) {
-
         guard !cells.isEmpty else {
             return
         }
 
-        print(
-            "LATTICE STEP:",
-            "collisionActive =", collisionActive,
-            "collisionImpulseApplied =", collisionImpulseApplied,
-            "cells =", cells.count
-        )
-
         // ============================================================
-        // PHYSICAL LATTICE TIMESTEP
-        // ============================================================
-
-        let physicsDt = QRTLConstants.timeStep
-
-        guard physicsDt > 0.0,
-              physicsDt.isFinite else {
-            return
-        }
-
-        // ============================================================
-        // COLLISION STATE
-        // ============================================================
-
-        guard collisionActive else {
-            return
-        }
-
-        // ============================================================
-        // COLLISION ENERGY
+        // ORIGINAL COLLISION ENERGY = ONLY ENERGY SOURCE
         // ============================================================
 
         guard collisionKineticEnergyJ.isFinite,
@@ -4293,200 +3839,346 @@ final class QRTLSimulation: ObservableObject {
             return
         }
 
+        let collisionBudgetJ =
+            collisionKineticEnergyJ
+
         // ============================================================
-        // ONE-TIME COLLISION ENERGY DEPOSITION
+        // SHELL MUST CONTAIN THE COLLISION BUDGET
         // ============================================================
 
-        if !collisionImpulseApplied {
+        shellStoredEnergyJ =
+            collisionBudgetJ
 
-            let collisionEnergy =
-                collisionKineticEnergyJ
+        // ============================================================
+        // 100% OF THE COLLISION BUDGET LEAVES THE SHELL
+        // ============================================================
 
-            let excitationEnergy =
-                collisionEnergy *
-                QRTLConstants.collisionKineticFractionToPotential
+        let energyToReleaseJ =
+            shellStoredEnergyJ
 
-            let stiffness =
-                QRTLConstants.effectiveStiffnessNPerM
+        guard energyToReleaseJ.isFinite,
+              energyToReleaseJ > 0.0 else {
+            return
+        }
 
-            let spacing =
-                QRTLConstants.latticeCellSpacingMeters
+        // ============================================================
+        // COLLISION CENTER
+        // ============================================================
 
-            guard excitationEnergy.isFinite,
-                  excitationEnergy > 0.0,
-                  stiffness.isFinite,
-                  stiffness > 0.0,
-                  spacing.isFinite,
-                  spacing > 0.0 else {
-                return
-            }
+        let center =
+            SIMD3<Double>(
+                0.0,
+                0.0,
+                0.0
+            )
 
-            let centerIndex =
-                cells.count / 2
+        let radius =
+            max(
+                Double(QRTLConstants.latticeSize) / 4.0,
+                1.0
+            )
 
-            let centerPosition =
-                cells[centerIndex].position
+        // ============================================================
+        // FIND AFFECTED CELLS
+        // ============================================================
 
-            let radius =
-                QRTLConstants.collisionRadius
+        var affectedIndices: [Int] = []
 
-            guard radius.isFinite,
-                  radius > 0.0 else {
-                return
-            }
+        for index in cells.indices {
 
-            var weights =
-                Array(
-                    repeating: 0.0,
-                    count: cells.count
+            let position =
+                SIMD3<Double>(
+                    Double(cells[index].position.x),
+                    Double(cells[index].position.y),
+                    Double(cells[index].position.z)
                 )
 
-            var totalWeight = 0.0
-
-            // --------------------------------------------------------
-            // COLLISION WEIGHTS
-            // --------------------------------------------------------
-
-            for index in cells.indices {
-
-                let p =
-                    cells[index].position
-
-                let dx =
-                    Double(p.x - centerPosition.x)
-
-                let dy =
-                    Double(p.y - centerPosition.y)
-
-                let dz =
-                    Double(p.z - centerPosition.z)
-
-                let distance =
-                    Foundation.sqrt(
-                        dx * dx +
-                        dy * dy +
-                        dz * dz
-                    )
-
-                guard distance.isFinite,
-                      distance <= radius else {
-                    continue
-                }
-
-                let normalized =
-                    distance / radius
-
-                let weight =
-                    max(
-                        0.0,
-                        1.0 - normalized
-                    )
-
-                weights[index] =
-                    weight
-
-                totalWeight +=
-                    weight
-            }
-
-            guard totalWeight.isFinite,
-                  totalWeight > 0.0 else {
-                return
-            }
-
-            // --------------------------------------------------------
-            // ENERGY-CORRECT LATTICE DISPLACEMENT
-            //
-            // Stored displacement = lattice units.
-            //
-            // Physical displacement:
-            //
-            // xPhysical =
-            //     displacement * latticeCellSpacingMeters
-            //
-            // E = 1/2 k x²
-            // --------------------------------------------------------
-
-            let baseDisplacement =
-                Foundation.sqrt(
-                    excitationEnergy /
-                    (
-                        0.5 *
-                        stiffness *
-                        spacing *
-                        spacing *
-                        totalWeight
-                    )
+            let distance =
+                simd_distance(
+                    position,
+                    center
                 )
 
-            guard baseDisplacement.isFinite else {
-                return
+            if distance <= radius {
+                affectedIndices.append(index)
             }
+        }
 
-            // --------------------------------------------------------
-            // APPLY COLLISION COMPRESSION
-            // --------------------------------------------------------
+        // ============================================================
+        // FALLBACK TO CLOSEST CELL
+        // ============================================================
 
-            var actualDepositedEnergy =
+        if affectedIndices.isEmpty {
+
+            if let centerIndex =
+                cells.indices.min(by: {
+
+                    let p0 =
+                        SIMD3<Double>(
+                            Double(cells[$0].position.x),
+                            Double(cells[$0].position.y),
+                            Double(cells[$0].position.z)
+                        )
+
+                    let p1 =
+                        SIMD3<Double>(
+                            Double(cells[$1].position.x),
+                            Double(cells[$1].position.y),
+                            Double(cells[$1].position.z)
+                        )
+
+                    return simd_distance(p0, center) <
+                        simd_distance(p1, center)
+                })
+            {
+                affectedIndices =
+                    [centerIndex]
+            }
+        }
+
+        guard !affectedIndices.isEmpty else {
+            return
+        }
+
+        // ============================================================
+        // EFFECTIVE CELL MASS
+        // ============================================================
+
+        let cellMassKg =
+            max(
+                QRTLConstants.effectiveMassKg,
+                Double.leastNonzeroMagnitude
+            )
+
+        guard cellMassKg.isFinite,
+              cellMassKg > 0.0 else {
+            return
+        }
+
+        // ============================================================
+        // CLEAR PRIOR MECHANICAL STATE IN THE IMPACT REGION
+        // ============================================================
+
+        for index in affectedIndices {
+
+            cells[index].velocity =
+                SIMD3<Float>(repeating: 0.0)
+
+            cells[index].displacement =
+                SIMD3<Float>(repeating: 0.0)
+
+            cells[index].modeCoordinate =
                 0.0
 
-            var affectedCellCount =
-                0
+            cells[index].modeVelocity =
+                0.0
 
-            for index in cells.indices {
+            cells[index].modeAcceleration =
+                0.0
 
-                let weight =
-                    weights[index]
+            cells[index].amplitude =
+                0.0
 
-                guard weight > 0.0 else {
-                    continue
-                }
+            cells[index].localEnergy =
+                0.0
+        }
 
-                let displacementMagnitude =
-                    baseDisplacement *
-                    Foundation.sqrt(weight)
+        // ============================================================
+        // CALCULATE SPATIAL WEIGHTS
+        //
+        // The sum of all weights is normalized to 1.0, so the intended
+        // injection energy is exactly the collision budget before Float
+        // storage and later integration effects are considered.
+        // ============================================================
 
-                guard displacementMagnitude.isFinite else {
-                    continue
-                }
+        var weights =
+            Array(
+                repeating: 0.0,
+                count: affectedIndices.count
+            )
 
-                let p =
-                    cells[index].position
+        var totalWeight =
+            0.0
 
-                let directionVector =
-                    SIMD3<Float>(
-                        Float(p.x - centerPosition.x),
-                        Float(p.y - centerPosition.y),
-                        Float(p.z - centerPosition.z)
+        for i in affectedIndices.indices {
+
+            let index =
+                affectedIndices[i]
+
+            let position =
+                SIMD3<Double>(
+                    Double(cells[index].position.x),
+                    Double(cells[index].position.y),
+                    Double(cells[index].position.z)
+                )
+
+            let distance =
+                simd_distance(
+                    position,
+                    center
+                )
+
+            let normalizedDistance =
+                min(
+                    1.0,
+                    distance / radius
+                )
+
+            let weight =
+                max(
+                    0.0,
+                    1.0 - normalizedDistance
+                )
+
+            weights[i] =
+                weight
+
+            totalWeight +=
+                weight
+        }
+
+        guard totalWeight.isFinite,
+              totalWeight > 0.0 else {
+            return
+        }
+
+        // ============================================================
+        // INITIAL ENERGY INJECTION
+        //
+        // At injection time:
+        //
+        //     displacement = 0
+        //
+        // so all injected mechanical energy is kinetic:
+        //
+        //     E = 1/2 m v²
+        // ============================================================
+
+        for i in affectedIndices.indices {
+
+            let index =
+                affectedIndices[i]
+
+            let energyFraction =
+                weights[i] /
+                totalWeight
+
+            let cellEnergyJ =
+                collisionBudgetJ *
+                energyFraction
+
+            guard cellEnergyJ.isFinite,
+                  cellEnergyJ >= 0.0 else {
+                continue
+            }
+
+            // ========================================================
+            // RADIAL DIRECTION
+            // ========================================================
+
+            let position =
+                SIMD3<Double>(
+                    Double(cells[index].position.x),
+                    Double(cells[index].position.y),
+                    Double(cells[index].position.z)
+                )
+
+            let radialDirection =
+                position - center
+
+            let distance =
+                simd_length(radialDirection)
+
+            let direction =
+                distance > 1.0e-12
+                ? radialDirection / distance
+                : SIMD3<Double>(
+                    1.0,
+                    0.0,
+                    0.0
+                )
+
+            // ========================================================
+            // VELOCITY FOR THIS CELL'S ALLOCATED ENERGY
+            // ========================================================
+
+            let velocityMagnitude =
+                sqrt(
+                    max(
+                        0.0,
+                        2.0 *
+                        cellEnergyJ /
+                        cellMassKg
                     )
+                )
 
-                let length =
-                    simd_length(directionVector)
+            guard velocityMagnitude.isFinite else {
+                return
+            }
 
-                let direction: SIMD3<Float>
+            let velocity =
+                direction *
+                velocityMagnitude
 
-                if length > 0.0 {
-                    direction =
-                        directionVector / length
-                } else {
-                    direction =
-                        SIMD3<Float>(0, 0, 1)
-                }
+            // ========================================================
+            // STORE INITIAL KINETIC STATE
+            // ========================================================
 
-                let boundedDisplacement =
-                    min(
-                        displacementMagnitude,
-                        QRTLConstants.maxLatticeDisplacement
+            cells[index].velocity =
+                SIMD3<Float>(
+                    Float(velocity.x),
+                    Float(velocity.y),
+                    Float(velocity.z)
+                )
+
+            cells[index].displacement =
+                SIMD3<Float>(
+                    repeating: 0.0
+                )
+
+            // ========================================================
+            // MODAL STATE
+            // ========================================================
+
+            cells[index].modeCoordinate =
+                0.0
+
+            cells[index].modeVelocity =
+                simd_length(
+                    SIMD3<Double>(
+                        Double(cells[index].velocity.x),
+                        Double(cells[index].velocity.y),
+                        Double(cells[index].velocity.z)
                     )
+                )
 
-                cells[index].displacement =
-                    direction *
-                    Float(boundedDisplacement)
+            cells[index].modeAcceleration =
+                0.0
 
-                // Collision deposition initially contains potential
-                // energy only. Velocity starts at zero.
-                cells[index].velocity =
-                    SIMD3<Float>(0, 0, 0)
+            cells[index].amplitude =
+                0.0
+
+            cells[index].previousPhase =
+                cells[index].phase
+
+            cells[index].phase =
+                0.0
+        }
+
+        // ============================================================
+        // MEASURE ACTUAL LATTICE ENERGY
+        //
+        // This should ideally measure the same affected region that
+        // received the collision impulse. Do not use all cells here if
+        // your lattice may already contain unrelated wave energy.
+        // ============================================================
+
+        func affectedMechanicalEnergy() -> Double {
+
+            var totalEnergyJ =
+                0.0
+
+            for index in affectedIndices {
 
                 let energy =
                     physicalEnergy(
@@ -4498,454 +4190,749 @@ final class QRTLSimulation: ObservableObject {
 
                 if energy.isFinite,
                    energy >= 0.0 {
-
-                    cells[index].localEnergy =
-                        energy
-
-                    actualDepositedEnergy +=
-                        energy
-
-                } else {
-
-                    cells[index].localEnergy =
-                        0.0
+                    totalEnergyJ += energy
                 }
-
-                affectedCellCount +=
-                    1
             }
 
-            depositedEnergyJ =
-                actualDepositedEnergy
+            return totalEnergyJ
+        }
 
-            initialAffectedCellCount =
-                affectedCellCount
+        var measuredEnergyBeforeNormalization =
+            affectedMechanicalEnergy()
 
-            collisionImpulseApplied =
-                true
-
-            print("""
-            ============================================================
-            COLLISION ENERGY DEPOSITION
-            ============================================================
-            Collision kinetic energy:
-                \(collisionEnergy) J
-
-            Excitation energy:
-                \(excitationEnergy) J
-
-            Deposited lattice energy:
-                \(actualDepositedEnergy) J
-
-            Affected cells:
-                \(affectedCellCount)
-
-            Base displacement:
-                \(baseDisplacement) lattice units
-
-            Physical base displacement:
-                \(baseDisplacement * spacing) m
-            ============================================================
-            """)
+        guard measuredEnergyBeforeNormalization.isFinite,
+              measuredEnergyBeforeNormalization >= 0.0 else {
+            return
         }
 
         // ============================================================
-        // LATTICE UPDATE
+        // DOWN-ONLY ENERGY NORMALIZATION
+        //
+        // Never create energy.
+        //
+        // If Float storage, existing integration behavior, or another
+        // numerical effect makes injected lattice energy exceed the
+        // original collision budget, reduce the state proportionally.
+        //
+        // Scale both velocity and displacement because:
+        //
+        //     Kinetic energy   ∝ velocity²
+        //     Potential energy ∝ displacement²
+        //
+        // If measured energy is lower than the budget, leave it lower.
         // ============================================================
 
+        if measuredEnergyBeforeNormalization > collisionBudgetJ {
+
+            let stateScale =
+                sqrt(
+                    collisionBudgetJ /
+                    measuredEnergyBeforeNormalization
+                )
+
+            guard stateScale.isFinite,
+                  stateScale > 0.0,
+                  stateScale < 1.0 else {
+                return
+            }
+
+            for index in affectedIndices {
+
+                cells[index].velocity *=
+                    Float(stateScale)
+
+                cells[index].displacement *=
+                    Float(stateScale)
+
+                let energy =
+                    physicalEnergy(
+                        displacement:
+                            cells[index].displacement,
+                        velocity:
+                            cells[index].velocity
+                    )
+
+                cells[index].localEnergy =
+                    energy.isFinite && energy >= 0.0
+                    ? energy
+                    : 0.0
+            }
+
+            measuredEnergyBeforeNormalization =
+                affectedMechanicalEnergy()
+
+            guard measuredEnergyBeforeNormalization.isFinite,
+                  measuredEnergyBeforeNormalization >= 0.0 else {
+                return
+            }
+        }
+
+        // ============================================================
+        // RECALCULATE ALL AFFECTED CELL ENERGIES
+        //
+        // This is required even when no down-normalization occurred.
+        // ============================================================
+
+        for index in affectedIndices {
+
+            let energy =
+                physicalEnergy(
+                    displacement:
+                        cells[index].displacement,
+                    velocity:
+                        cells[index].velocity
+                )
+
+            cells[index].localEnergy =
+                energy.isFinite && energy >= 0.0
+                ? energy
+                : 0.0
+        }
+
+        // ============================================================
+        // FINAL LATTICE ENERGY
+        // ============================================================
+
+        let finalLatticeEnergyJ =
+            affectedMechanicalEnergy()
+
+        guard finalLatticeEnergyJ.isFinite,
+              finalLatticeEnergyJ >= 0.0 else {
+            return
+        }
+
+        latticeEnergy =
+            finalLatticeEnergyJ
+
+        currentLatticeEnergyJ =
+            finalLatticeEnergyJ
+
+        currentLatticeEnergyGeV =
+            finalLatticeEnergyJ /
+            QRTLConstants.joulesPerGeV
+
+        currentLatticeEnergyTeV =
+            currentLatticeEnergyGeV /
+            1_000.0
+
+        // ============================================================
+        // SHELL → LATTICE TRANSFER COMPLETE
+        // ============================================================
+
+        shellStoredEnergyJ =
+            0.0
+
+        shellEnergyReleased =
+            true
+
+        shellActive =
+            false
+
+        shellPhase =
+            .released
+
+        latticeExcited =
+            true
+
+        collisionImpulseApplied =
+            true
+
+        // ============================================================
+        // DIAGNOSTICS
+        // ============================================================
+
+        let energyRatio =
+            collisionBudgetJ > 0.0
+            ? finalLatticeEnergyJ / collisionBudgetJ
+            : 0.0
+
+        let relativeError =
+            collisionBudgetJ > 0.0
+            ? abs(
+                finalLatticeEnergyJ -
+                collisionBudgetJ
+              ) / collisionBudgetJ
+            : 0.0
+
+        let peakCellEnergyJ =
+            affectedIndices
+                .map {
+                    cells[$0].localEnergy
+                }
+                .max() ?? 0.0
+
+        print("""
+        ============================================================
+        QRTL SHELL → LATTICE ENERGY TRANSFER
+        ============================================================
+        Collision budget:
+            \(collisionBudgetJ) J
+
+        Collision budget:
+            \(collisionBudgetJ / QRTLConstants.joulesPerGeV) GeV
+
+        Shell released:
+            \(energyToReleaseJ) J
+
+        Final lattice energy:
+            \(finalLatticeEnergyJ) J
+
+        Final lattice energy:
+            \(currentLatticeEnergyGeV) GeV
+
+        Final lattice energy:
+            \(currentLatticeEnergyTeV) TeV
+
+        Energy ratio:
+            \(energyRatio)
+
+        Relative error:
+            \(relativeError)
+
+        Affected cells:
+            \(affectedIndices.count)
+
+        Peak cell energy:
+            \(peakCellEnergyJ) J
+
+        Shell remaining:
+            \(shellStoredEnergyJ) J
+
+        Shell released:
+            \(shellEnergyReleased)
+
+        Shell active:
+            \(shellActive)
+
+        Lattice excited:
+            \(latticeExcited)
+
+        Collision impulse applied:
+            \(collisionImpulseApplied)
+        ============================================================
+        """)
+    }
+   
+   
+
+
+    /// SI mechanical energy. displacement in meters, velocity in m/s.
+    /// Do NOT multiply by latticeCellSpacingMeters here.
+    /// SI mechanical energy.
+    /// displacement: meters, velocity: m/s
+    /// Do NOT multiply by latticeCellSpacingMeters.
+    private func physicalEnergy(
+        displacement: SIMD3<Float>,
+        velocity: SIMD3<Float>
+    ) -> Double {
+        let mass = QRTLConstants.effectiveMassKg
+        let stiffness = QRTLConstants.effectiveStiffnessNPerM
+
+        guard mass.isFinite, mass > 0,
+              stiffness.isFinite, stiffness > 0,
+              displacement.x.isFinite, displacement.y.isFinite, displacement.z.isFinite,
+              velocity.x.isFinite, velocity.y.isFinite, velocity.z.isFinite
+        else {
+            return 0.0
+        }
+
+        let x2 =
+            Double(displacement.x) * Double(displacement.x) +
+            Double(displacement.y) * Double(displacement.y) +
+            Double(displacement.z) * Double(displacement.z)
+
+        let v2 =
+            Double(velocity.x) * Double(velocity.x) +
+            Double(velocity.y) * Double(velocity.y) +
+            Double(velocity.z) * Double(velocity.z)
+
+        guard x2.isFinite, x2 >= 0, v2.isFinite, v2 >= 0 else {
+            return 0.0
+        }
+
+        let potential = 0.5 * stiffness * x2
+        let kinetic   = 0.5 * mass * v2
+        let total = potential + kinetic
+
+        return (total.isFinite && total >= 0) ? total : 0.0
+    }
+
+    func totalMechanicalLatticeEnergy() -> Double {
+        cells.reduce(0.0) { partial, cell in
+            partial + physicalEnergy(
+                displacement: cell.displacement,
+                velocity: cell.velocity
+            )
+        }
+    }
+
+    private func updateLattice(dt: Double) {
+
+        guard !cells.isEmpty else {
+            return
+        }
+
+        // Evolution owner is updateCollisionDynamics only.
+        // This function: sync energy, phase/amplitude diagnostics, budget guard.
+
+        guard collisionActive else {
+            return
+        }
+
+        let physicsDt = QRTLConstants.timeStep
+        guard physicsDt.isFinite, physicsDt > 0 else {
+            return
+        }
+
+        // ------------------------------------------------------------
+        // 1) Sync localEnergy from current physical state
+        // ------------------------------------------------------------
         for index in cells.indices {
 
-            var cell =
-                cells[index]
+            var cell = cells[index]
 
-            // --------------------------------------------------------
-            // FINITE-VALUE RECOVERY
-            // --------------------------------------------------------
-
+            // Finite recovery only (no energy clamp)
             if !cell.displacement.x.isFinite ||
                !cell.displacement.y.isFinite ||
                !cell.displacement.z.isFinite {
-
-                cell.displacement =
-                    SIMD3<Float>(0, 0, 0)
+                cell.displacement = .zero
             }
 
             if !cell.velocity.x.isFinite ||
                !cell.velocity.y.isFinite ||
                !cell.velocity.z.isFinite {
-
-                cell.velocity =
-                    SIMD3<Float>(0, 0, 0)
+                cell.velocity = .zero
             }
 
-            // ========================================================
-            // NOTE ON REMOVED SECOND EVOLUTION PASS
-            //
-            // This loop used to independently re-evolve cell.displacement
-            // and cell.velocity every frame via a semi-implicit Euler
-            // integrator (F = -kx -> a -> v += a*dt -> x += v*dt),
-            // explicitly treating cell.velocity as "lattice-units per
-            // second" and clamping it to ±QRTLConstants.maxLatticeVelocity
-            // (50.0) under that convention.
-            //
-            // updateCollisionDynamics() (called earlier this same frame,
-            // in updatePhysics) already evolves the SAME cell.displacement
-            // / cell.velocity fields via an exact analytic SHM rotation,
-            // in genuine physical units (meters, m/s). Running both meant
-            // the lattice was evolved twice per frame by two physics
-            // models that disagreed about what the stored numbers even
-            // meant — the second pass clobbered the first's physically
-            // meaningful (if numerically extreme, given the current
-            // stiffness constant) result with a value computed under an
-            // incompatible unit assumption, destroying any genuine
-            // oscillatory signal before identifyResonantMode() could ever
-            // see it.
-            //
-            // updateCollisionDynamics() is now the single evolution
-            // pathway. This block only clamps whatever it produced, in
-            // the SAME physical units it actually uses, so a numerical
-            // blowup (e.g. from the current astronomically large
-            // effective stiffness) can't propagate into localEnergy /
-            // latticeEnergy unclamped — it no longer re-derives
-            // displacement or velocity from scratch.
-            // ========================================================
+            // Authoritative energy from (x, v). Never invent energy here.
+            let energy = physicalEnergy(
+                displacement: cell.displacement,
+                velocity: cell.velocity
+            )
 
-            let velocityLimitPhysical =
-                Float(QRTLConstants.maxLatticeVelocity)
-
-            let displacementLimitPhysical =
-                Float(QRTLConstants.maxLatticeDisplacement)
-
-            cell.velocity.x =
-                max(
-                    -velocityLimitPhysical,
-                    min(
-                        velocityLimitPhysical,
-                        cell.velocity.x
-                    )
-                )
-
-            cell.velocity.y =
-                max(
-                    -velocityLimitPhysical,
-                    min(
-                        velocityLimitPhysical,
-                        cell.velocity.y
-                    )
-                )
-
-            cell.velocity.z =
-                max(
-                    -velocityLimitPhysical,
-                    min(
-                        velocityLimitPhysical,
-                        cell.velocity.z
-                    )
-                )
-
-            cell.displacement.x =
-                max(
-                    -displacementLimitPhysical,
-                    min(
-                        displacementLimitPhysical,
-                        cell.displacement.x
-                    )
-                )
-
-            cell.displacement.y =
-                max(
-                    -displacementLimitPhysical,
-                    min(
-                        displacementLimitPhysical,
-                        cell.displacement.y
-                    )
-                )
-
-            cell.displacement.z =
-                max(
-                    -displacementLimitPhysical,
-                    min(
-                        displacementLimitPhysical,
-                        cell.displacement.z
-                    )
-                )
-
-            // ========================================================
-            // LOCAL PHYSICAL ENERGY
-            // ========================================================
-
-            let energy =
-                physicalEnergy(
-                    displacement:
-                        cell.displacement,
-                    velocity:
-                        cell.velocity
-                )
-
-            if energy.isFinite,
-               energy >= 0.0 {
-
-                cell.localEnergy =
-                    energy
-
+            // If energy is invalid, clear state consistently.
+            // Do NOT zero velocity while leaving a stale nonzero localEnergy,
+            // and do NOT zero localEnergy while leaving a large velocity.
+            if energy.isFinite, energy >= 0 {
+                cell.localEnergy = energy
             } else {
-
-                cell.localEnergy =
-                    0.0
-
-                cell.velocity =
-                    SIMD3<Float>(0, 0, 0)
+                cell.displacement = .zero
+                cell.velocity = .zero
+                cell.localEnergy = 0
             }
 
-            // ========================================================
-            // PHASE
-            // ========================================================
-
+            // Phase diagnostic (does not affect energy)
             if !cell.phase.isFinite {
-                cell.phase = 0.0
+                cell.phase = 0
             }
 
-            let omega =
-                naturalAngularFrequency.isFinite
-                ? naturalAngularFrequency
-                : 0.0
-
-            let phaseIncrementDouble =
-                omega * physicsDt
-
-            if phaseIncrementDouble.isFinite {
-
-                cell.phase +=
-                    phaseIncrementDouble
+            let omega = naturalAngularFrequency.isFinite ? naturalAngularFrequency : 0.0
+            let phaseIncrement = omega * physicsDt
+            if phaseIncrement.isFinite {
+                cell.phase += phaseIncrement
             }
-
             if !cell.phase.isFinite {
-                cell.phase = 0.0
+                cell.phase = 0
             }
-
-            cell.phase =
-                cell.phase.truncatingRemainder(
-                    dividingBy:
-                        2.0 * Double.pi
-                )
-
+            cell.phase = cell.phase.truncatingRemainder(dividingBy: 2.0 * Double.pi)
             if !cell.phase.isFinite {
-                cell.phase = 0.0
+                cell.phase = 0
             }
 
-            // ========================================================
-            // AMPLITUDE
-            //
-            // Stored in lattice units.
-            // ========================================================
+            let amp = simd_length(cell.displacement)
+            cell.amplitude = amp.isFinite ? Double(amp) : 0
 
-            let amplitude =
-                simd_length(
-                    cell.displacement
+            let modeV = simd_length(
+                SIMD3<Double>(
+                    Double(cell.velocity.x),
+                    Double(cell.velocity.y),
+                    Double(cell.velocity.z)
                 )
+            )
+            cell.modeVelocity = modeV.isFinite ? modeV : 0
 
-            cell.amplitude =
-                amplitude.isFinite
-                ? Double(amplitude)
-                : 0.0
-
-            // ========================================================
-            // SAVE CELL
-            // ========================================================
-
-            cells[index] =
-                cell
+            cells[index] = cell
         }
 
-        // ============================================================
-        // TOTAL LATTICE ENERGY
-        // ============================================================
-
-        var totalLatticeEnergy =
-            0.0
-
-        for cell in cells {
-
-            if cell.localEnergy.isFinite,
-               cell.localEnergy >= 0.0 {
-
-                totalLatticeEnergy +=
-                    cell.localEnergy
-            }
+        // ------------------------------------------------------------
+        // 2) Budget guard — scale DOWN only (never create energy)
+        // ------------------------------------------------------------
+        var totalLatticeEnergy = cells.reduce(0.0) { partial, cell in
+            let e = cell.localEnergy
+            return partial + (e.isFinite && e >= 0 ? e : 0)
         }
 
-        latticeEnergy =
-            totalLatticeEnergy.isFinite
-            ? totalLatticeEnergy
-            : 0.0
+        if collisionKineticEnergyJ.isFinite,
+           collisionKineticEnergyJ > 0,
+           totalLatticeEnergy.isFinite,
+           totalLatticeEnergy > collisionKineticEnergyJ * 1.001 {
 
-        // ============================================================
-        // ENERGY ACCOUNTING
-        // ============================================================
+            let scale = sqrt(collisionKineticEnergyJ / totalLatticeEnergy)
 
-        let accountedEnergy =
-            latticeEnergy +
-            ejectedEnergyJ
+            if scale.isFinite, scale > 0, scale <= 1.0 {
+                for index in cells.indices {
+                    cells[index].velocity *= Float(scale)
+                    cells[index].displacement *= Float(scale)
 
-        if accountedEnergy.isFinite {
-
-            dissipatedEnergyJ =
-                max(
-                    0.0,
-                    collisionKineticEnergyJ -
-                    accountedEnergy
-                )
-
-        } else {
-
-            dissipatedEnergyJ =
-                0.0
-        }
-
-        // ============================================================
-        // ENERGY CONSERVATION DEBUG
-        // ============================================================
-
-        if latticeEnergy.isFinite,
-           collisionKineticEnergyJ.isFinite,
-           collisionKineticEnergyJ > 0.0 {
-
-            let energyRatio =
-                latticeEnergy /
-                collisionKineticEnergyJ
-
-            if energyRatio > 1.001 {
-
-                print("""
-                ⚠️ LATTICE ENERGY EXCEEDS COLLISION BUDGET
-
-                Collision energy:
-                    \(collisionKineticEnergyJ) J
-
-                Lattice energy:
-                    \(latticeEnergy) J
-
-                Energy ratio:
-                    \(energyRatio)
-
-                Excess energy:
-                    \(latticeEnergy - collisionKineticEnergyJ) J
-                """)
-            }
-        }
-
-        // ============================================================
-        // COLLECTIVE SIGNAL
-        // ============================================================
-
-        let signal =
-            cells.reduce(0.0) {
-
-                partialResult,
-                cell in
-
-                guard cell.amplitude.isFinite,
-                      cell.phase.isFinite else {
-
-                    return partialResult
+                    let e = physicalEnergy(
+                        displacement: cells[index].displacement,
+                        velocity: cells[index].velocity
+                    )
+                    cells[index].localEnergy = e.isFinite && e >= 0 ? e : 0
                 }
 
-                return partialResult +
-                    cell.amplitude *
-                    cos(cell.phase)
+                totalLatticeEnergy = cells.reduce(0.0) { partial, cell in
+                    let e = cell.localEnergy
+                    return partial + (e.isFinite && e >= 0 ? e : 0)
+                }
             }
-
-        if signal.isFinite {
-
-            collectiveSignal.append(
-                signal
-            )
-
-        } else {
-
-            collectiveSignal.append(
-                0.0
-            )
         }
 
-        // ============================================================
-        // BOUNDED SPECTRAL BUFFER
-        // ============================================================
+        latticeEnergy = totalLatticeEnergy.isFinite ? totalLatticeEnergy : 0
 
-        let maxSamples =
-            QRTLConstants.spectralSampleCount
+        // ------------------------------------------------------------
+        // 3) Accounting
+        // ------------------------------------------------------------
+        let accounted = latticeEnergy + ejectedEnergyJ
+        if accounted.isFinite, collisionKineticEnergyJ.isFinite {
+            dissipatedEnergyJ = max(0, collisionKineticEnergyJ - accounted)
+        } else {
+            dissipatedEnergyJ = 0
+        }
 
-        if collectiveSignal.count >
-           maxSamples {
+        if collisionKineticEnergyJ > 0, latticeEnergy.isFinite {
+            let ratio = latticeEnergy / collisionKineticEnergyJ
+            let relErr = abs(latticeEnergy - collisionKineticEnergyJ) / collisionKineticEnergyJ
+            print("""
+            ------------------------------------------------------------
+            QRTL LATTICE ENERGY
+            Collision:   \(collisionKineticEnergyJ) J
+            Lattice:     \(latticeEnergy) J
+            Ejected:     \(ejectedEnergyJ) J
+            Unaccounted: \(dissipatedEnergyJ) J
+            Ratio:       \(ratio)
+            Rel error:   \(relErr)
+            shellReleased: \(shellEnergyReleased)
+            ------------------------------------------------------------
+            """)
+        }
 
-            collectiveSignal.removeFirst(
-                collectiveSignal.count -
-                maxSamples
-            )
+        // ------------------------------------------------------------
+        // 4) Collective signal buffer
+        // ------------------------------------------------------------
+        let signal = cells.reduce(0.0) { partial, cell in
+            guard cell.amplitude.isFinite, cell.phase.isFinite else {
+                return partial
+            }
+            return partial + cell.amplitude * cos(cell.phase)
+        }
+        collectiveSignal.append(signal.isFinite ? signal : 0)
+
+        let maxSamples = QRTLConstants.spectralSampleCount
+        if collectiveSignal.count > maxSamples {
+            collectiveSignal.removeFirst(collectiveSignal.count - maxSamples)
         }
     }
-    /// Borlagrino flow from kinetic↔potential conversion and twist gradients.
-    /// Charge from circulation; does not create energy.
+
     private func updateBorlagrinoAndCharge(dt: Double) {
+
         guard collisionOccurred, !cells.isEmpty else {
-            averageBorlagrinoMagnitude = 0
-            netEmergentCharge = 0
-            chargeAsymmetry = 0
+            averageBorlagrinoMagnitude = 0.0
+            netEmergentCharge = 0.0
+            chargeAsymmetry = 0.0
             return
         }
+
+        let safeDt = dt.isFinite && dt > 0.0
+            ? dt
+            : QRTLConstants.timeStep
+
+        guard safeDt.isFinite, safeDt > 0.0 else {
+            return
+        }
+
         var nextFlow = cells.map { $0.borlagrinoFlow }
         var nextCharge = cells.map { $0.charge }
+
         let center = SIMD3<Float>(0, 0, 0)
 
+        // ------------------------------------------------------------
+        // COLLISION ENERGY SCALE
+        //
+        // Used only to create a dimensionless kinetic proxy.
+        // Borlagrino flow does NOT create or destroy physical energy.
+        // ------------------------------------------------------------
+
+        let referenceEnergyJ = max(
+            collisionKineticEnergyJ,
+            QRTLConstants.higgsReferenceEnergyJ
+        )
+
+        // ------------------------------------------------------------
+        // UPDATE LOCAL BORLAGRINO FLOW
+        // ------------------------------------------------------------
+
         for i in cells.indices {
+
             let cell = cells[i]
-            // Conversion proxy: potential-like strain vs kinetic-like |v|
-            let potProxy = cell.localStrain
-            let kinProxy = min(1, Double(simd_length(cell.velocity)) / QRTLConstants.maxLatticeVelocity)
+
+            // --------------------------------------------------------
+            // POTENTIAL-LIKE PROXY
+            //
+            // Strain is already dimensionless.
+            // --------------------------------------------------------
+
+            let potProxy = cell.localStrain.isFinite
+                ? max(0.0, cell.localStrain)
+                : 0.0
+
+            // --------------------------------------------------------
+            // KINETIC-LIKE PROXY
+            //
+            // cell.velocity is physical m/s.
+            //
+            // Convert velocity to kinetic energy:
+            //
+            //     E = 1/2 m v²
+            //
+            // Then normalize by the collision/reference energy.
+            //
+            // This replaces the old:
+            //
+            //     velocity / maxLatticeVelocity
+            //
+            // which depended on an artificial velocity clamp.
+            // --------------------------------------------------------
+
+            let velocity = SIMD3<Double>(
+                Double(cell.velocity.x),
+                Double(cell.velocity.y),
+                Double(cell.velocity.z)
+            )
+
+            let velocitySquared = simd_length_squared(velocity)
+
+            let kineticEnergyJ: Double
+
+            if velocitySquared.isFinite,
+               velocitySquared >= 0.0 {
+
+                kineticEnergyJ =
+                    0.5 *
+                    QRTLConstants.effectiveMassKg *
+                    velocitySquared
+
+            } else {
+                kineticEnergyJ = 0.0
+            }
+
+            let kinProxy: Double
+
+            if referenceEnergyJ.isFinite,
+               referenceEnergyJ > 0.0,
+               kineticEnergyJ.isFinite {
+
+                kinProxy = min(
+                    1.0,
+                    max(0.0, kineticEnergyJ / referenceEnergyJ)
+                )
+
+            } else {
+                kinProxy = 0.0
+            }
+
+            // --------------------------------------------------------
+            // STRAIN / KINETIC CONVERSION
+            // --------------------------------------------------------
+
             let conversion = potProxy - kinProxy
 
+            // --------------------------------------------------------
+            // TWIST GRADIENT
+            // --------------------------------------------------------
+
             var twistGrad = SIMD3<Float>(0, 0, 0)
+
             for ni in cell.neighbors {
-                let dTwist = Float(cells[ni].twist - cell.twist)
-                twistGrad += (cells[ni].position - cell.position) * dTwist
+
+                guard cells.indices.contains(ni) else {
+                    continue
+                }
+
+                let dTwist = Float(
+                    cells[ni].twist - cell.twist
+                )
+
+                let positionDelta =
+                    cells[ni].position - cell.position
+
+                twistGrad += positionDelta * dTwist
             }
+
             if !cell.neighbors.isEmpty {
                 twistGrad /= Float(cell.neighbors.count)
             }
 
+            // --------------------------------------------------------
+            // BORLAGRINO FLOW
+            // --------------------------------------------------------
+
             var flow = cell.borlagrinoFlow
-            flow += twistGrad * Float(QRTLConstants.borlagrinoCoupling * conversion)
-            // Circulation bias around collision axis
+
+            let coupling =
+                QRTLConstants.borlagrinoCoupling * conversion
+
+            if coupling.isFinite {
+                flow += twistGrad * Float(coupling)
+            }
+
+            // --------------------------------------------------------
+            // CIRCULATION BIAS AROUND COLLISION AXIS
+            // --------------------------------------------------------
+
             let radial = cell.position - center
-            let circ = SIMD3<Float>(-radial.y, radial.x, 0) * Float(conversion * 0.05)
-            flow += circ
-            flow *= Float(1.0 - QRTLConstants.borlagrinoDamping)
-            if simd_length(flow) > 2 { flow = simd_normalize(flow) * 2 }
+
+            let circulation =
+                SIMD3<Float>(
+                    -radial.y,
+                     radial.x,
+                     0
+                ) * Float(conversion * 0.05)
+
+            if circulation.x.isFinite &&
+               circulation.y.isFinite &&
+               circulation.z.isFinite {
+
+                flow += circulation
+            }
+
+            // --------------------------------------------------------
+            // BORLAGRINO DAMPING
+            // --------------------------------------------------------
+
+            let damping =
+                max(
+                    0.0,
+                    min(
+                        1.0,
+                        QRTLConstants.borlagrinoDamping
+                    )
+                )
+
+            flow *= Float(1.0 - damping)
+
+            // --------------------------------------------------------
+            // NUMERICAL SAFETY
+            //
+            // This is a dimensionless flow limit, NOT a physical
+            // lattice velocity limit.
+            // --------------------------------------------------------
+
+            let flowMagnitude = simd_length(flow)
+
+            if !flowMagnitude.isFinite {
+                flow = SIMD3<Float>(0, 0, 0)
+
+            } else if flowMagnitude > 2.0 {
+                flow = simd_normalize(flow) * 2.0
+            }
+
             nextFlow[i] = flow
 
-            // Emergent charge ~ local circulation (finite difference curl proxy)
-            var curlZ: Float = 0
+            // --------------------------------------------------------
+            // EMERGENT CHARGE
+            //
+            // Charge is derived from Borlagrino circulation.
+            // It does not create physical energy.
+            // --------------------------------------------------------
+
+            var curlZ: Float = 0.0
+
             for ni in cell.neighbors {
-                let f = cells[ni].borlagrinoFlow
-                curlZ += f.y * (cells[ni].position.x - cell.position.x)
-                    - f.x * (cells[ni].position.y - cell.position.y)
+
+                guard cells.indices.contains(ni) else {
+                    continue
+                }
+
+                let neighborFlow =
+                    cells[ni].borlagrinoFlow
+
+                let positionDelta =
+                    cells[ni].position - cell.position
+
+                curlZ +=
+                    neighborFlow.y * positionDelta.x
+                    -
+                    neighborFlow.x * positionDelta.y
             }
-            let q = Double(curlZ) * QRTLConstants.chargeFromCirculation
-            nextCharge[i] = nextCharge[i] * 0.9 + q * 0.1
+
+            let q =
+                Double(curlZ) *
+                QRTLConstants.chargeFromCirculation
+
+            if q.isFinite {
+                nextCharge[i] =
+                    cell.charge * 0.9 +
+                    q * 0.1
+            } else {
+                nextCharge[i] = cell.charge
+            }
         }
 
+        // ------------------------------------------------------------
+        // SYNCHRONOUS COMMIT
+        // ------------------------------------------------------------
+
         for i in cells.indices {
+
             cells[i].borlagrinoFlow = nextFlow[i]
             cells[i].charge = nextCharge[i]
         }
 
+        // ------------------------------------------------------------
+        // GLOBAL BORLAGRINO METRICS
+        // ------------------------------------------------------------
+
         let n = Double(max(cells.count, 1))
-        averageBorlagrinoMagnitude = cells.reduce(0.0) {
-            $0 + Double(simd_length($1.borlagrinoFlow))
-        } / n
-        netEmergentCharge = cells.reduce(0.0) { $0 + $1.charge }
-        let absSum = cells.reduce(0.0) { $0 + abs($1.charge) }
-        chargeAsymmetry = absSum > 1e-12 ? abs(netEmergentCharge) / absSum : 0
+
+        averageBorlagrinoMagnitude =
+            cells.reduce(0.0) {
+                let magnitude =
+                    Double(simd_length($1.borlagrinoFlow))
+
+                return $0 + (
+                    magnitude.isFinite
+                    ? magnitude
+                    : 0.0
+                )
+            } / n
+
+        netEmergentCharge =
+            cells.reduce(0.0) {
+                let charge = $1.charge
+
+                return $0 + (
+                    charge.isFinite
+                    ? charge
+                    : 0.0
+                )
+            }
+
+        let absSum =
+            cells.reduce(0.0) {
+                let charge = $1.charge
+
+                return $0 + (
+                    charge.isFinite
+                    ? abs(charge)
+                    : 0.0
+                )
+            }
+
+        chargeAsymmetry =
+            absSum > 1.0e-12
+            ? abs(netEmergentCharge) / absSum
+            : 0.0
     }
 
     private func calculateCollectiveCoherence() {
