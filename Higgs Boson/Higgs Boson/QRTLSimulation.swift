@@ -5808,17 +5808,40 @@ final class QRTLSimulation: ObservableObject {
             )
         }
     }
-
     private func updateScene() {
 
         updateQuarkScene()
+
+        // ------------------------------------------------------------
+        // ENERGY VISUALIZATION REFERENCE
+        // Use the strongest currently energized cell so that energy
+        // movement through the lattice remains visible.
+        // ------------------------------------------------------------
+
+        let maxCellEnergy = cells
+            .map { $0.localEnergy }
+            .filter { $0.isFinite && $0 > 0.0 }
+            .max() ?? 1.0
+
+        let safeMaxCellEnergy =
+            max(maxCellEnergy, 1e-30)
+
+        // ------------------------------------------------------------
+        // LATTICE CELLS
+        // ------------------------------------------------------------
 
         for i in cells.indices {
 
             let cell = cells[i]
             let node = cellNodes[i]
 
-            let p = cell.position + cell.displacement
+            // --------------------------------------------------------
+            // PHYSICAL POSITION
+            // --------------------------------------------------------
+
+            let p =
+                cell.position +
+                cell.displacement
 
             node.position = SCNVector3(
                 p.x * QRTLConstants.sceneScale,
@@ -5826,31 +5849,26 @@ final class QRTLSimulation: ObservableObject {
                 p.z * QRTLConstants.sceneScale
             )
 
-            // ------------------------------------------------------------
-            // ENERGY REFERENCE
-            // ------------------------------------------------------------
+            // --------------------------------------------------------
+            // ENERGY NORMALIZATION
+            // --------------------------------------------------------
 
-            let energyReferenceJ =
-                depositedEnergyJ /
-                max(
-                    Double(initialAffectedCellCount),
-                    1.0
-                )
+            let rawEnergyNorm =
+                cell.localEnergy /
+                safeMaxCellEnergy
 
             let energyNorm =
-                energyReferenceJ > 0.0
-                ? min(
+                min(
                     1.0,
                     max(
                         0.0,
-                        cell.localEnergy / energyReferenceJ
+                        sqrt(max(rawEnergyNorm, 0.0))
                     )
                 )
-                : 0.0
 
-            // ------------------------------------------------------------
-            // DISPLACEMENT-BASED CELL SIZE
-            // ------------------------------------------------------------
+            // --------------------------------------------------------
+            // DISPLACEMENT
+            // --------------------------------------------------------
 
             let displacementMeters =
                 simd_length(
@@ -5893,15 +5911,25 @@ final class QRTLSimulation: ObservableObject {
                     )
                 )
 
+            // Energy is now dominant for visualization.
             let visualNorm =
                 max(
-                    displacementNorm,
-                    amplitudeNorm
+                    energyNorm,
+                    max(
+                        displacementNorm,
+                        amplitudeNorm
+                    )
                 )
 
-            let scale = Float(
-                0.5 + visualNorm * 1.8
-            )
+            // --------------------------------------------------------
+            // CELL SIZE
+            // --------------------------------------------------------
+
+            let scale =
+                Float(
+                    0.5 +
+                    visualNorm * 1.8
+                )
 
             node.scale = SCNVector3(
                 scale,
@@ -5909,29 +5937,12 @@ final class QRTLSimulation: ObservableObject {
                 scale
             )
 
-            // ------------------------------------------------------------
+            // --------------------------------------------------------
             // ENERGY-DOMINANT MATERIAL
-            // ------------------------------------------------------------
+            // --------------------------------------------------------
 
-            if let mat = node.geometry?.firstMaterial {
-
-                let energyReferenceJ =
-                    depositedEnergyJ /
-                    max(
-                        Double(initialAffectedCellCount),
-                        1.0
-                    )
-
-                let energyNorm =
-                    energyReferenceJ > 0.0
-                    ? min(
-                        1.0,
-                        max(
-                            0.0,
-                            cell.localEnergy / energyReferenceJ
-                        )
-                    )
-                    : 0.0
+            if let mat =
+                node.geometry?.firstMaterial {
 
                 let chargeTint =
                     min(
@@ -5942,12 +5953,13 @@ final class QRTLSimulation: ObservableObject {
                         )
                     )
 
-                // Make energy visually dominant.
+                // Energy controls the primary color.
                 let red =
                     CGFloat(
                         min(
                             1.0,
-                            energyNorm
+                            0.10 +
+                            energyNorm * 0.90
                         )
                     )
 
@@ -5955,7 +5967,9 @@ final class QRTLSimulation: ObservableObject {
                     CGFloat(
                         max(
                             0.05,
-                            0.30 - energyNorm * 0.25
+                            0.30 -
+                            energyNorm * 0.25 +
+                            chargeTint * 0.10
                         )
                     )
 
@@ -5963,32 +5977,58 @@ final class QRTLSimulation: ObservableObject {
                     CGFloat(
                         max(
                             0.05,
-                            0.80 - energyNorm * 0.70
+                            0.80 -
+                            energyNorm * 0.70
                         )
                     )
+
+                let alpha =
+                    CGFloat(
+                        0.35 +
+                        energyNorm * 0.65
+                    )
+
+                let color =
+                    UIColor(
+                        red: red,
+                        green: green,
+                        blue: blue,
+                        alpha: alpha
+                    )
+
+                mat.lightingModel = .constant
+                mat.blendMode = .alpha
 
                 mat.diffuse.contents =
-                    UIColor(
-                        red: red,
-                        green: green,
-                        blue: blue,
-                        alpha: CGFloat(
-                            0.35 + energyNorm * 0.65
-                        )
-                    )
+                    color
 
                 mat.emission.contents =
-                    UIColor(
-                        red: red,
-                        green: green,
-                        blue: blue,
-                        alpha: 1.0
-                    )
+                    color
 
                 mat.emission.intensity =
                     CGFloat(
-                        0.2 + energyNorm * 2.0
+                        0.2 +
+                        energyNorm * 2.0
                     )
+
+                mat.transparency =
+                    alpha
+            }
+
+            // --------------------------------------------------------
+            // DEBUG
+            // --------------------------------------------------------
+
+            if i == 0 {
+
+                print(
+                    "Cell 0 energy:",
+                    cell.localEnergy,
+                    "max:",
+                    safeMaxCellEnergy,
+                    "energyNorm:",
+                    energyNorm
+                )
             }
         }
 
@@ -6014,14 +6054,14 @@ final class QRTLSimulation: ObservableObject {
                 1.0 +
                 0.25 *
                 sin(
-                    simulationTime * 10
+                    simulationTime * 10.0
                 )
 
             let s =
                 Float(
                     max(
                         0.05,
-                        higgsMode.amplitude * 10
+                        higgsMode.amplitude * 10.0
                     )
                 ) *
                 Float(pulse)
