@@ -50,10 +50,12 @@ struct QRTLCell {
     var amplitude: Double = 0
     var localEnergy: Double = 0
     var localStrain: Double = 0
+    var strain : Double = 0
     var couplingState: Double = 0
 
     var modeCoordinate: Double = 0
     var modeVelocity: Double = 0
+    var modeEnergy : Double = 0
     var modeAcceleration: Double = 0
     var modeDirection = SIMD3<Float>(0, 0, 0)
 
@@ -120,7 +122,7 @@ struct EnergyState {
 }
 enum QRTLConstants {
 
-    static let collisionEnergyGeV: Double = 4_000.0
+    static let collisionEnergyGeV: Double = 125.0
 
     /// Collision energy in joules.
     static let collisionKineticEnergyJ: Double =
@@ -205,13 +207,14 @@ enum QRTLConstants {
     static let phaseCoupling = 0.12
     static let strainCoupling = 0.06
     static let restoringForce = 0.20
-    static let damping = 0.002
+
+    static let damping: Double = 0.0  // Set damping to zero to minimize energy loss and maximize resonance.
     static let twistRestoring = 0.08
     static let phaseRestoring = 0.03
 
     // Softened mechanical scale so lattice state stays finite in sim units
     static let effectiveMassKg = 1.0e-24
-    static let effectiveStiffnessNPerM = 3.606e28
+    static let effectiveStiffnessNPerM = 3.606e27
     static let latticeCellSpacingMeters = 1.0e-15
      static let dampingRatePerSecond = 2.0e23
     static let shellRelaxationRatePerSecond = 1.0e24
@@ -248,9 +251,3 @@ enum QRTLConstants {
     
 
 }
-
-
-
-
-
-
