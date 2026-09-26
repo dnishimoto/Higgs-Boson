@@ -121,8 +121,25 @@ struct EnergyState {
     var isUnstable: Bool = false
 }
 enum QRTLConstants {
+    static let protonBeamEnergyGeV = 4_000.0
+    static let protonMassKg = 1.67262192369e-27
+    static let speedOfLight = 299_792_458.0
+    static let joulesPerGeV = 1.602176634e-10
 
-    static let collisionEnergyGeV: Double = 125.0
+    // Intended beam kinetic energy per proton.
+    static let protonBeamKineticEnergyGeV = 4_000.0
+
+    // Derive gamma from K = (gamma - 1)mc².
+    static let protonRestEnergyJ =
+        protonMassKg * speedOfLight * speedOfLight
+
+    static let protonRestEnergyGeV =
+        protonRestEnergyJ / joulesPerGeV
+
+    static let protonGamma =
+        1.0 + protonBeamKineticEnergyGeV / protonRestEnergyGeV
+
+     static let collisionEnergyGeV: Double = 125.0
 
     /// Collision energy in joules.
     static let collisionKineticEnergyJ: Double =
@@ -139,7 +156,7 @@ enum QRTLConstants {
     static let shellLatticeTransferFraction = 1.0
     static let shellLifetimeSeconds = 1.0e-22
     static let joulesPerMeV = 1.602176634e-13
-    static let joulesPerGeV = 1.602176634e-10
+
     static let joulesPerTeV = 1.602176634e-7
 
      static let targetHiggsMassGeV = 125.0
@@ -185,7 +202,6 @@ enum QRTLConstants {
     static let helium2MinimumPersistenceSamples: Int = 5
     static let helium2DissolutionEnergyFraction: Double = 0.50
     static let protonVelocityMPerS: Double = 1.0e8
-    static let protonMassKg: Double = 1.67262192369e-27
     static let cellSpacing: Double = 1.0
     static let collisionRadius: Double = 5.0
     static let minimumCoherence: Double = 0.70
@@ -198,7 +214,6 @@ enum QRTLConstants {
     static let upQuarkMassKg = 3.85e-30
     static let pumpRadius = 3.0
     static let planckConstant = 6.62607015e-34
-    static let speedOfLight = 299_792_458.0
     static let joulePerGeV = 1.602176634e-10
 
     static let latticeSize = 17
@@ -222,7 +237,7 @@ enum QRTLConstants {
     // Clamp lattice oscillator coordinates (prevents inf energy)
     static let maxLatticeDisplacement = 50.0
 
-    static let protonRestEnergyGeV = 0.93827208816
+  
     static let lhcProtonBeamEnergyTeV = 6.8
     static let lhcProtonBeamEnergyGeV = lhcProtonBeamEnergyTeV * 1_000.0
     static let lhcLorentzFactor = lhcProtonBeamEnergyGeV / protonRestEnergyGeV
