@@ -71,6 +71,7 @@ struct QRTLCell {
 struct QRTLEnergyState {
     var equilibriumShellEnergy: Double = QRTLConstants.collisionKineticEnergyJ
     var shellEnergy: Double = QRTLConstants.collisionKineticEnergyJ
+    var initialShellEnergy: Double = 0
     var kineticEnergy: Double = 0
     var deformation: Double = 0
     var shellInstability: Double = 0

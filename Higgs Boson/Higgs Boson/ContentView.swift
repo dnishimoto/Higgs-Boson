@@ -172,19 +172,33 @@ struct ContentView: View {
         ) {
 
             // Primary shell-energy indicator
-
-            Text(
-                "\(formatGeV(simulation.energyState.shellEnergy)) GeV"
-            )
-            .font(
-                .system(
-                    size: 30,
-                    weight: .bold,
-                    design: .monospaced
+            HStack{
+                Text(
+                    "\(formatGeV(simulation.energyState.initialShellEnergy)) GeV"
                 )
-            )
-            .foregroundColor(.cyan)
-            .frame(maxWidth: .infinity)
+                .font(
+                    .system(
+                        size: 30,
+                        weight: .bold,
+                        design: .monospaced
+                    )
+                )
+                .foregroundColor(.cyan)
+                .frame(maxWidth: .infinity)
+                Divider()
+                Text(
+                    "\(formatGeV(simulation.energyState.shellEnergy)) GeV"
+                )
+                .font(
+                    .system(
+                        size: 30,
+                        weight: .bold,
+                        design: .monospaced
+                    )
+                )
+                .foregroundColor(.cyan)
+                .frame(maxWidth: .infinity)
+            }
 
             Text("Shell Energy")
                 .font(.caption)
