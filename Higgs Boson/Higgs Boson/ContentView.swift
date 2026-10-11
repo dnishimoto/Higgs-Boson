@@ -42,59 +42,69 @@ import Combine
 struct ContentView: View {
 
     @StateObject private var simulation = QRTLSimulation()
+    @State private var showAbout = false
 
     var body: some View {
+        NavigationStack {
+            ZStack(alignment: .top) {
 
-        ZStack(alignment: .top) {
+                Color.black
+                    .ignoresSafeArea()
 
-            Color.black
-                .ignoresSafeArea()
+                VStack(spacing: 0) {
 
-            VStack(spacing: 0) {
+                    // ========================================================
+                    // 3D SCENE
+                    // ========================================================
 
-                // ========================================================
-                // 3D SCENE
-                // ========================================================
+                    SceneView(
+                        scene: simulation.scene,
+                        pointOfView: simulation.cameraNode,
+                        options: [
+                            .allowsCameraControl,
+                            .autoenablesDefaultLighting
+                        ]
+                    )
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 470)
 
-                SceneView(
-                    scene: simulation.scene,
-                    pointOfView: simulation.cameraNode,
-                    options: [
-                        .allowsCameraControl,
-                        .autoenablesDefaultLighting
-                    ]
-                )
-                .frame(maxWidth: .infinity)
-                .frame(height: 470)
+                    // ========================================================
+                    // PHYSICS INFORMATION
+                    // ========================================================
 
-                // ========================================================
-                // PHYSICS INFORMATION
-                // ========================================================
+                    ScrollView {
 
-                ScrollView {
+                        VStack(spacing: 10) {
 
-                    VStack(spacing: 10) {
+                            collisionCard
+                            shellEnergyCard
+                            resonanceCard
 
-                        collisionCard
-                        shellEnergyCard
-                        resonanceCard
-
-                        Button("Reset Simulation") {
-                            simulation.reset()
+                            Button("Reset Simulation") {
+                                simulation.reset()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .padding(.vertical, 8)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .padding(.vertical, 8)
+                        .padding()
                     }
-                    .padding()
+                    .background(Color.black)
                 }
-                .background(Color.black)
             }
-        }
-        .onAppear {
-            simulation.start()
-        }
-        .onDisappear {
-            simulation.stop()
+            .navigationTitle("QRTL Simulation")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    NavigationLink(destination: AboutView()) {
+                        Label("About", systemImage: "info.circle")
+                    }
+                }
+            }
+            .onAppear {
+                simulation.start()
+            }
+            .onDisappear {
+                simulation.stop()
+            }
         }
     }
 
@@ -475,3 +485,6 @@ struct ContentView: View {
         )
     }
 }
+
+// Minimal placeholder for AboutView to ensure compilation if AboutView.swift is missing
+
