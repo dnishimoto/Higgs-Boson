@@ -147,10 +147,6 @@ struct ContentView: View {
             Divider()
                 .background(Color.gray)
 
-            metricRow(
-                label: "Collision Energy",
-                value: "\(formatScientific(simulation.collisionKineticEnergyJ)) J"
-            )
 
             metricRow(
                 label: "Collision Energy",
@@ -177,25 +173,12 @@ struct ContentView: View {
     private var shellEnergyCard: some View {
 
         monitorCard(
-            title: "QRTL SHELL ENERGY",
+            title: "COLLISION QRTL SHELL ENERGY",
             symbol: "circle.hexagongrid.fill"
         ) {
 
             // Primary shell-energy indicator
             HStack{
-                Text(
-                    "\(formatGeV(simulation.energyState.initialShellEnergy)) GeV"
-                )
-                .font(
-                    .system(
-                        size: 30,
-                        weight: .bold,
-                        design: .monospaced
-                    )
-                )
-                .foregroundColor(.cyan)
-                .frame(maxWidth: .infinity)
-                Divider()
                 Text(
                     "\(formatGeV(simulation.energyState.shellEnergy)) GeV"
                 )

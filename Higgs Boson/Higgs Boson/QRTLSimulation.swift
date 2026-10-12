@@ -43,6 +43,19 @@ final class QRTLSimulation: ObservableObject {
     @Published var helium2StableBoundState: Bool = false
     @Published var helium2DissolutionDetected: Bool = false
 
+    // Explicit storyboard for the user's proposed collision → He-2-like
+    // intermediate → shell dissipation → Higgs-like/lepton event. This is a
+    // conceptual visualization state machine, not a validated particle reaction.
+    @Published var reactionSequenceStage: String = "WAITING FOR COLLISION"
+    @Published var reactionShellEnergyFraction: Double = 1.0
+    @Published var hypotheticalHiggsTransitionOccurred: Bool = false
+    @Published var emittedLeptonCount: Int = 0
+    @Published var reactionShellEnergyDissipatedJ: Double = 0.0
+    private var reactionSequenceElapsed: Double = 0.0
+    private var reactionSequenceStarted = false
+    private var reactionInitialShellEnergyJ: Double = 0.0
+    private var reactionLeptonNodes: [SCNNode] = []
+
     var helium2PeakShellEnergyGeV: Double = 0.0
     var helium2MinimumProtonSeparation: Double = .greatestFiniteMagnitude
     var helium2PersistenceSamples: Int = 0
@@ -185,6 +198,7 @@ final class QRTLSimulation: ObservableObject {
     private let protonAShellNode = SCNNode()
     private let protonBShellNode = SCNNode()
     private let latticeParentNode = SCNNode()
+    private let helium2Node = SCNNode()
     private let higgsNode = SCNNode()
 
     private var cells: [QRTLCell] = []
@@ -241,6 +255,7 @@ final class QRTLSimulation: ObservableObject {
         configureScene()
         buildLattice()
         createProtons()
+        createHelium2Node()
         createHiggsNode()
         initializeCollisionQuarks()
         createQuarkNodes()
@@ -257,6 +272,7 @@ final class QRTLSimulation: ObservableObject {
         scene.rootNode.addChildNode(protonBNode)
         scene.rootNode.addChildNode(protonAShellNode)
         scene.rootNode.addChildNode(protonBShellNode)
+        scene.rootNode.addChildNode(helium2Node)
         scene.rootNode.addChildNode(higgsNode)
 
         cameraNode.camera = SCNCamera()
@@ -582,57 +598,147 @@ final class QRTLSimulation: ObservableObject {
             alpha: 1.0
         )
     }
-    private func evaluateHelium2Candidate() {
+    /// Drives a clearly-labelled conceptual sequence for the QRTL hypothesis.
+    /// It must not be interpreted as an established He-2-to-Higgs decay channel.
+    private func updateHypotheticalReactionSequence(visualDt: Double) {
+        guard collisionOccurred, visualDt.isFinite, visualDt > 0 else { return }
+        // The product stage is terminal: once the Higgs-like marker appears,
+        // leave the final scene intact and do not advance the reaction again.
+        guard !hypotheticalHiggsTransitionOccurred else { return }
 
-        helium2CandidateDetected = false
-        helium2StableBoundState = false
-        helium2DissolutionDetected = false
+        if !reactionSequenceStarted {
+            reactionSequenceStarted = true
+            reactionSequenceElapsed = 0.0
+            reactionInitialShellEnergyJ = max(0.0, collisionKineticEnergyJ)
+            reactionShellEnergyDissipatedJ = 0.0
+            reactionShellEnergyFraction = 1.0
+            hypotheticalHiggsTransitionOccurred = false
+            emittedLeptonCount = 0
+            helium2DissolutionDetected = false
 
-        helium2PeakShellEnergyGeV = 0.0
-        helium2MinimumProtonSeparation = .greatestFiniteMagnitude
-        helium2PersistenceSamples = 0
-        helium2InitialShellEnergyGeV = 0.0
+            // Collision replaces the two incoming proton visuals with one
+            // temporary He-2-like intermediate. Hide all representations of
+            // the incoming protons, including their shells and quark markers.
+            protonANode.isHidden = true
+            protonBNode.isHidden = true
+            protonAShellNode.isHidden = true
+            protonBShellNode.isHidden = true
+            protonAQuarkNodes.forEach { $0.isHidden = true }
+            protonBQuarkNodes.forEach { $0.isHidden = true }
 
-        guard cells.count >= 2 else {
+            helium2Node.isHidden = false
+            helium2Node.opacity = 1.0
+            helium2Node.scale = SCNVector3(1.0, 1.0, 1.0)
+            helium2Node.position = SCNVector3(0, 0, 0)
+            higgsNode.isHidden = true
+            energyShellNode?.opacity = 1.0
+            reactionSequenceStage = "COLLISION: He-2-LIKE CANDIDATE FORMING"
+        }
+
+        reactionSequenceElapsed += visualDt
+
+        // Stage 1: show the He-2-like intermediate after the collision.
+        if reactionSequenceElapsed < 0.5 {
+            helium2Node.isHidden = false
+            helium2CandidateDetected = true
+            helium2DissolutionDetected = false
+            helium2StableBoundState = false
+            reactionSequenceStage = "He-2-LIKE CANDIDATE FORMING"
             return
         }
 
-        // --------------------------------------------------------
-        // Treat the two most energetic localized regions as the
-        // two proton-associated regions.
-        // --------------------------------------------------------
+        // Stage 2: keep He-2 visible while the surrounding energy shell fades.
+        if reactionSequenceElapsed < 1.5 {
+            helium2Node.isHidden = false
+            helium2CandidateDetected = true
+            helium2StableBoundState = false
+            reactionSequenceStage = "ENERGY SHELL DISSIPATING"
+            let progress = min(1.0, max(0.0, reactionSequenceElapsed - 0.5))
+            reactionShellEnergyFraction = 1.0 - progress
+            reactionShellEnergyDissipatedJ =
+                reactionInitialShellEnergyJ * (1.0 - reactionShellEnergyFraction)
+            energyShellNode?.opacity = CGFloat(reactionShellEnergyFraction)
+            return
+        }
 
+        // Stage 3: He-2-like marker is replaced by the hypothetical Higgs-like
+        // marker and two lepton-like markers. This is a visual hypothesis only.
+        reactionShellEnergyFraction = 0.0
+        reactionShellEnergyDissipatedJ = reactionInitialShellEnergyJ
+        energyShellNode?.opacity = 0.0
+        helium2Node.isHidden = true
+        helium2Node.opacity = 0.0
+        helium2CandidateDetected = false
+        helium2DissolutionDetected = true
+        helium2StableBoundState = false
+        hypotheticalHiggsTransitionOccurred = true
+        reactionSequenceStage = "HYPOTHETICAL HIGGS-LIKE EVENT + LEPTONS"
+
+        // This node is also used by the independent resonance diagnostic.
+        // Once this storyboard reaches its product stage, keep its visual
+        // result under the storyboard's control rather than allowing the
+        // diagnostic update to hide it on the next frame.
+        higgsNode.isHidden = false
+        higgsNode.opacity = 1.0
+        higgsNode.scale = SCNVector3(1.0, 1.0, 1.0)
+        higgsNode.position = SCNVector3(0, 0, 0)
+
+        if reactionLeptonNodes.isEmpty {
+            for (index, color) in [UIColor.cyan, UIColor.orange].enumerated() {
+                let sphere = SCNSphere(radius: 0.12)
+                sphere.segmentCount = 16
+                let material = SCNMaterial()
+                material.diffuse.contents = color
+                material.emission.contents = color
+                sphere.materials = [material]
+                let node = SCNNode(geometry: sphere)
+                node.name = index == 0 ? "HypotheticalLeptonA" : "HypotheticalLeptonB"
+                node.position = SCNVector3(0, 0, 0)
+                scene.rootNode.addChildNode(node)
+                reactionLeptonNodes.append(node)
+            }
+            emittedLeptonCount = reactionLeptonNodes.count
+        }
+
+        let productAge = max(0.0, reactionSequenceElapsed - 1.5)
+        let travel = Float(min(8.0, productAge * 1.8))
+        if reactionLeptonNodes.count >= 2 {
+            reactionLeptonNodes[0].position = SCNVector3(-travel, 0.35, 0)
+            reactionLeptonNodes[1].position = SCNVector3(travel, -0.35, 0)
+        }
+
+        // Freeze the completed visual: keep the Higgs-like marker and both
+        // lepton-like markers visible, then stop the simulation timer.
+        reactionSequenceStage = "STOPPED: HIGGS-LIKE EVENT + LEPTONS"
+        stop()
+    }
+
+    private func evaluateHelium2Candidate() {
+        guard cells.count >= 2 else {
+            helium2PersistenceSamples = 0
+            helium2CandidateDetected = false
+            return
+        }
+
+        // Keep historical peak/minimum values across simulation steps.
+        // They are reset only when the simulation is explicitly reset.
         let sortedCells = cells.sorted {
             $0.localEnergy > $1.localEnergy
         }
 
-        guard
-            let protonA = sortedCells.first
-        else {
+        guard let protonA = sortedCells.first else {
+            helium2PersistenceSamples = 0
+            helium2CandidateDetected = false
             return
         }
 
         var protonB: QRTLCell?
 
         for candidate in sortedCells.dropFirst() {
-
-            let dx =
-                Double(candidate.position.x) -
-                Double(protonA.position.x)
-
-            let dy =
-                Double(candidate.position.y) -
-                Double(protonA.position.y)
-
-            let dz =
-                Double(candidate.position.z) -
-                Double(protonA.position.z)
-
-            let separation = sqrt(
-                dx * dx +
-                dy * dy +
-                dz * dz
-            )
+            let dx = Double(candidate.position.x) - Double(protonA.position.x)
+            let dy = Double(candidate.position.y) - Double(protonA.position.y)
+            let dz = Double(candidate.position.z) - Double(protonA.position.z)
+            let separation = sqrt(dx * dx + dy * dy + dz * dz)
 
             if separation > 0.0 {
                 protonB = candidate
@@ -641,162 +747,106 @@ final class QRTLSimulation: ObservableObject {
         }
 
         guard let protonB else {
+            helium2PersistenceSamples = 0
+            helium2CandidateDetected = false
             return
         }
 
-        // --------------------------------------------------------
-        // Proton separation
-        // --------------------------------------------------------
+        let dx = Double(protonB.position.x) - Double(protonA.position.x)
+        let dy = Double(protonB.position.y) - Double(protonA.position.y)
+        let dz = Double(protonB.position.z) - Double(protonA.position.z)
+        let separation = sqrt(dx * dx + dy * dy + dz * dz)
 
-        let dx =
-            Double(protonB.position.x) -
-            Double(protonA.position.x)
-
-        let dy =
-            Double(protonB.position.y) -
-            Double(protonA.position.y)
-
-        let dz =
-            Double(protonB.position.z) -
-            Double(protonA.position.z)
-
-        let separation = sqrt(
-            dx * dx +
-            dy * dy +
-            dz * dz
+        helium2MinimumProtonSeparation = min(
+            helium2MinimumProtonSeparation,
+            separation
         )
 
-        helium2MinimumProtonSeparation = separation
-
-        // --------------------------------------------------------
-        // Localized shell energy
-        // --------------------------------------------------------
-
-        let shellEnergyJ =
-            protonA.localEnergy +
-            protonB.localEnergy
-
+        let shellEnergyJ = max(
+            0.0,
+            protonA.localEnergy + protonB.localEnergy
+        )
         let shellEnergyGeV =
-            shellEnergyJ /
-            QRTLConstants.joulesPerGeV
+            shellEnergyJ / QRTLConstants.joulesPerGeV
 
-        helium2PeakShellEnergyGeV =
-            max(
-                helium2PeakShellEnergyGeV,
-                shellEnergyGeV
-            )
+        helium2PeakShellEnergyGeV = max(
+            helium2PeakShellEnergyGeV,
+            shellEnergyGeV
+        )
 
-        if helium2InitialShellEnergyGeV == 0.0 {
+        if shellEnergyGeV.isFinite,
+           shellEnergyGeV > 0.0,
+           helium2InitialShellEnergyGeV <= 0.0 {
             helium2InitialShellEnergyGeV = shellEnergyGeV
         }
 
-        // --------------------------------------------------------
-        // Bound-like condition
-        // --------------------------------------------------------
-
+        // He-2 is treated as a temporary candidate, not a stable bound state.
+        // The relaxed thresholds make this a permissive simulation heuristic,
+        // not a validated nuclear-physics criterion.
         let localized =
+            shellEnergyGeV.isFinite &&
             shellEnergyGeV >=
-            QRTLConstants.helium2MinimumShellEnergyGeV
+                (QRTLConstants.helium2MinimumShellEnergyGeV * 0.5)
 
         let closeEnough =
             separation <=
-            QRTLConstants.helium2MaximumSeparation
+                (QRTLConstants.helium2MaximumSeparation * 1.5)
 
         let resonancePresent =
             naturalFrequency > 0.0 &&
             resonantModeEnergyGeV > 0.0
 
-        if localized &&
-           closeEnough &&
-           resonancePresent {
-
+        if localized && closeEnough && resonancePresent {
             helium2PersistenceSamples += 1
         } else {
             helium2PersistenceSamples = 0
         }
 
-        // --------------------------------------------------------
-        // Candidate requires temporary persistence.
-        // --------------------------------------------------------
-
-        if helium2PersistenceSamples >=
-            QRTLConstants.helium2MinimumPersistenceSamples {
-
+        if helium2PersistenceSamples >= 2 {
             helium2CandidateDetected = true
         }
-
-        // --------------------------------------------------------
-        // A stable He-2 state is deliberately NOT expected.
-        //
-        // If the localized shell later loses at least the
-        // specified fraction of its initial energy, classify
-        // the candidate as dissolved.
-        // --------------------------------------------------------
 
         let dissolutionThreshold =
             helium2InitialShellEnergyGeV *
             QRTLConstants.helium2DissolutionEnergyFraction
 
         if helium2CandidateDetected &&
+           helium2InitialShellEnergyGeV > 0.0 &&
            shellEnergyGeV < dissolutionThreshold {
-
             helium2DissolutionDetected = true
+            helium2CandidateDetected = false
             helium2StableBoundState = false
+            helium2PersistenceSamples = 0
+        } else if !helium2DissolutionDetected {
+            helium2DissolutionDetected = false
         }
-        
-        /*
 
-        // --------------------------------------------------------
-        // Debug
-        // --------------------------------------------------------
+        // This model deliberately does not declare a stable He-2 bound state.
+        helium2StableBoundState = false
 
+        #if DEBUG
         print("""
         ========================================================
         HELIUM-2 CANDIDATE TEST
         ========================================================
-
-        Proton A cell:
-            \(protonA.index)
-
-        Proton B cell:
-            \(protonB.index)
-
-        Proton separation:
-            \(separation)
-
-        Maximum allowed separation:
-            \(QRTLConstants.helium2MaximumSeparation)
-
-        Shell energy:
-            \(shellEnergyGeV) GeV
-
-        Peak shell energy:
-            \(helium2PeakShellEnergyGeV) GeV
-
-        Resonant mode energy:
-            \(resonantModeEnergyGeV) GeV
-
-        Resonance frequency:
-            \(naturalFrequency) Hz
-
-        Persistence samples:
-            \(helium2PersistenceSamples)
-
-        Candidate detected:
-            \(helium2CandidateDetected)
-
-        Stable bound state:
-            \(helium2StableBoundState)
-
-        Dissolution detected:
-            \(helium2DissolutionDetected)
-
+        Proton A cell: \(protonA.index)
+        Proton B cell: \(protonB.index)
+        Current proton separation: \(separation)
+        Minimum observed separation: \(helium2MinimumProtonSeparation)
+        Maximum allowed separation: \(QRTLConstants.helium2MaximumSeparation * 1.5)
+        Current shell energy: \(shellEnergyGeV) GeV
+        Initial shell energy: \(helium2InitialShellEnergyGeV) GeV
+        Peak shell energy: \(helium2PeakShellEnergyGeV) GeV
+        Resonant mode energy: \(resonantModeEnergyGeV) GeV
+        Resonance frequency: \(naturalFrequency) Hz
+        Persistence samples: \(helium2PersistenceSamples)
+        Candidate detected: \(helium2CandidateDetected)
+        Stable bound state: \(helium2StableBoundState)
+        Dissolution detected: \(helium2DissolutionDetected)
         ========================================================
         """)
-         */
+        #endif
     }
-  
-   
 
     // ============================================================
     // IDENTIFY RESONANT MODE AND CALCULATE ITS ENERGY
@@ -1853,10 +1903,24 @@ final class QRTLSimulation: ObservableObject {
         higgsNode.isHidden = true
     }
 
+    /// Visible temporary He-2-like marker used by the proposed reaction storyboard.
+    private func createHelium2Node() {
+        let sphere = SCNSphere(radius: 0.52)
+        sphere.segmentCount = 32
+        let material = SCNMaterial()
+        material.diffuse.contents = UIColor(red: 1.0, green: 0.62, blue: 0.12, alpha: 1.0)
+        material.emission.contents = UIColor(red: 1.0, green: 0.36, blue: 0.04, alpha: 0.9)
+        sphere.materials = [material]
+        helium2Node.geometry = sphere
+        helium2Node.position = SCNVector3(0, 0, 0)
+        helium2Node.isHidden = true
+    }
+
     // MARK: - Run loop
 
     func start() {
-        guard !running else { return }
+        // This reaction is terminal until reset clears the transition flag.
+        guard !running, !hypotheticalHiggsTransitionOccurred else { return }
         running = true
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             self?.performFrame()
@@ -1873,6 +1937,9 @@ final class QRTLSimulation: ObservableObject {
         // Physics uses attosecond-scale step; visual quark/shell use separate clocks
         let physicalDt = QRTLConstants.timeStep
         for _ in 0..<QRTLConstants.physicsStepsPerFrame {
+            // The reaction may stop the timer during a physics substep.
+            // Do not execute any additional substeps after that stop.
+            guard running else { break }
             updatePhysics(dt: physicalDt, visualDt: 1.0 / 60.0)
         }
         updateScene()
@@ -2000,7 +2067,13 @@ final class QRTLSimulation: ObservableObject {
         updateHiggsLikeMode(dt: dt)
 
         // ============================================================
-        // 10. ENERGY DIAGNOSTICS
+        // 10. HYPOTHETICAL He-2 → SHELL DISSIPATION → HIGGS-LIKE/LEPTON
+        // ============================================================
+
+        updateHypotheticalReactionSequence(visualDt: visualDt)
+
+        // ============================================================
+        // 11. ENERGY DIAGNOSTICS
         // ============================================================
 
         // printCollisionEnergyState()
@@ -5770,7 +5843,11 @@ final class QRTLSimulation: ObservableObject {
 
         _ = nearTarget // available for stricter gate if desired
 
-        if higgsMode.active {
+        if hypotheticalHiggsTransitionOccurred {
+            // The reaction storyboard owns this node after its transition.
+            // Do not let the independent resonance gate hide it next frame.
+            higgsNode.isHidden = false
+        } else if higgsMode.active {
             higgsNode.isHidden = false
             let vs = Float(max(0.05, min(2.5, amp * 8)))
             higgsNode.scale = SCNVector3(vs, vs, vs)
@@ -5779,7 +5856,8 @@ final class QRTLSimulation: ObservableObject {
             higgsNode.isHidden = true
         }
 
-        if !energyState.isUnstable && higgsMode.active {
+        if !hypotheticalHiggsTransitionOccurred &&
+           !energyState.isUnstable && higgsMode.active {
             higgsMode.decayProgress = min(1, higgsMode.decayProgress + dt * 0.15)
             if higgsMode.decayProgress >= 1 {
                 higgsMode.active = false
@@ -6449,18 +6527,48 @@ final class QRTLSimulation: ObservableObject {
         protonBX = QRTLConstants.initialProtonX
         protonDistance = abs(protonBX - protonAX)
         collisionOccurred = false
+        collisionActive = false
+        collisionCompleted = false
+        collisionImpulseApplied = false
         latticeExcited = false
+        collisionEnergyReleased = false
+        shellEnergyElevated = false
+        quarkCompressionActive = false
+        quarkRepulsionActive = false
         protonAState = "MOVING"
         protonBState = "MOVING"
 
         energyState = QRTLEnergyState()
-        energyState.equilibriumShellEnergy = QRTLConstants.collisionKineticEnergyJ
-        energyState.shellEnergy = QRTLConstants.collisionKineticEnergyJ
-        energyState.shellInstability = 0
+        // Reset the shell to its pre-collision state. The collision handler
+        // must supply fresh energy before the shell can form again.
+        energyState.equilibriumShellEnergy = 0.0
+        energyState.shellEnergy = 0.0
+        energyState.kineticEnergy = 0.0
+        energyState.deformation = 0.0
+        energyState.shellInstability = 0.0
         energyState.isUnstable = false
+
+        shellActive = false
+        shellEnergyReleased = false
+        shellStoredEnergyJ = 0.0
+        shellFormationTime = 0.0
+        shellPhase = .forming
+        shellCompression = 0.0
+        shellDeformation = 0.0
+        shellInstability = 0.0
         shellEnergyElevated = false
+        energyShellDissipationTriggered = false
+        collisionOccurredTime = 0.0
+        stableShellEnergyJ = 0.0
+        reactionInitialShellEnergyJ = 0.0
 
         higgsMode = HiggsLikeMode()
+        higgsLikeModeDetected = false
+        higgsLikeModeCandidate = false
+        resonancePersistence = 0.0
+        resonancePersistenceTime = 0.0
+        higgsTargetReached = false
+        higgsTargetAlertMessage = ""
         collectiveCoherence = 0
         collectiveAmplitude = 0
         averageStrain = 0
@@ -6479,6 +6587,14 @@ final class QRTLSimulation: ObservableObject {
         spectralAnalyzer.reset()
 
         collisionKineticEnergyJ = 0
+        initialCollisionEnergy = 0.0
+        ejectedEnergy = 0.0
+        ejectedEnergyJ = 0.0
+        dissipatedEnergy = 0.0
+        stableShellEnergyJ = 0.0
+        previousLatticeEnergy = 0.0
+        resonantModeAmplitude = 0.0
+        resonantModeEnergy = 0.0
         collisionKineticEnergyGeV = 0
         collisionKineticEnergyTeV = 0
         depositedEnergyJ = 0
@@ -6490,6 +6606,38 @@ final class QRTLSimulation: ObservableObject {
         resonantModeEnergyJ = 0
         resonantModeEnergyGeV = 0
         resonantModeEnergyTeV = 0
+
+        helium2CandidateDetected = false
+        helium2StableBoundState = false
+        helium2DissolutionDetected = false
+        helium2PeakShellEnergyGeV = 0.0
+        helium2MinimumProtonSeparation = .greatestFiniteMagnitude
+        helium2PersistenceSamples = 0
+        helium2InitialShellEnergyGeV = 0.0
+        naturalFrequency = 0.0
+        reactionSequenceStage = "WAITING FOR COLLISION"
+        reactionShellEnergyFraction = 1.0
+        hypotheticalHiggsTransitionOccurred = false
+        emittedLeptonCount = 0
+        reactionShellEnergyDissipatedJ = 0.0
+        reactionSequenceElapsed = 0.0
+        reactionSequenceStarted = false
+        reactionInitialShellEnergyJ = 0.0
+        reactionLeptonNodes.forEach { $0.removeFromParentNode() }
+        reactionLeptonNodes.removeAll()
+        helium2Node.isHidden = true
+        helium2Node.opacity = 1.0
+        energyShellNode?.removeAllActions()
+        energyShellNode?.isHidden = false
+        // Start invisible and at minimum radius; updateEnergyShell() will
+        // grow/show it only after a new collision deposits energy.
+        energyShellNode?.opacity = 0.0
+        energyShellNode?.scale = SCNVector3(1.0, 1.0, 1.0)
+        if let shellSphere = energyShellNode?.geometry as? SCNSphere {
+            shellSphere.radius = shellMinimumRadius
+        }
+        energyShellNode?.position = SCNVector3(0.0, 0.0, 0.0)
+
         dissipatedEnergyJ = 0
         dissipatedEnergyGeV = 0
         dissipatedEnergyTeV = 0
@@ -6534,16 +6682,46 @@ final class QRTLSimulation: ObservableObject {
 
         protonANode.isHidden = false
         protonBNode.isHidden = false
+        protonAShellNode.isHidden = false
+        protonBShellNode.isHidden = false
+        helium2Node.isHidden = true
+        helium2Node.opacity = 1.0
+        helium2Node.scale = SCNVector3(1.0, 1.0, 1.0)
         protonANode.position = SCNVector3(Float(protonAX) * QRTLConstants.sceneScale, 0, 0)
         protonBNode.position = SCNVector3(Float(protonBX) * QRTLConstants.sceneScale, 0, 0)
         protonAShellNode.scale = SCNVector3(1, 1, 1)
         protonBShellNode.scale = SCNVector3(1, 1, 1)
+        protonAShellNode.opacity = 1.0
+        protonBShellNode.opacity = 1.0
         higgsNode.isHidden = true
+        higgsNode.opacity = 1.0
+        higgsNode.scale = SCNVector3(1.0, 1.0, 1.0)
+        higgsNode.position = SCNVector3(0, 0, 0)
+        for node in reactionLeptonNodes { node.removeFromParentNode() }
+        reactionLeptonNodes.removeAll()
         for n in protonAQuarkNodes { n.isHidden = true }
         for n in protonBQuarkNodes { n.isHidden = true }
         initializeCollisionQuarks()
-        updateQuarkScene()
         buildLattice()
+        updateQuarkScene()
+        // Reassert the initial visual state after rebuilding the lattice/quarks.
+        protonANode.isHidden = false
+        protonBNode.isHidden = false
+        protonAShellNode.isHidden = false
+        protonBShellNode.isHidden = false
+        helium2Node.isHidden = true
+        higgsNode.isHidden = true
+        shellActive = false
+        shellEnergyReleased = false
+        shellStoredEnergyJ = 0.0
+        shellFormationTime = 0.0
+        energyShellDissipationTriggered = false
+        energyShellNode?.removeAllActions()
+        energyShellNode?.opacity = 0.0
+        energyShellNode?.isHidden = false
+        if let shellSphere = energyShellNode?.geometry as? SCNSphere {
+            shellSphere.radius = shellMinimumRadius
+        }
         start()
     }
 }
